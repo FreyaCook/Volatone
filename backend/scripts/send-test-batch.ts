@@ -12,7 +12,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import type { AgentDecisionEvent, PlayerMoveEvent, PlayerOutcomeEvent } from "@volatone/shared";
+import type { AgentDecisionEvent, PlayerMoveEvent, PlayerOutcomeEvent, TxConfirmedEvent } from "@volatone/shared";
 import { createIdSource } from "../src/ids";
 import { MAX_PER_TX, type Batch } from "../src/chain/batcher";
 import { Connection } from "@solana/web3.js";
@@ -57,6 +57,13 @@ const batch: Batch =
         move("GBP-USD", "reduce"),
       ];
 
+/** Flush stdout/stderr (async when piped on macOS), then exit with the given code. */
+async function exit(code: number): Promise<never> {
+  await new Promise<void>((r) => process.stdout.write("", () => r()));
+  await new Promise<void>((r) => process.stderr.write("", () => r()));
+  process.exit(code);
+}
+
 const config = configFromEnv();
 const memo = buildMemoPayload(batch);
 const usingDefaultRpc = !process.env.SOLANA_RPC_URL?.trim();
@@ -70,8 +77,18 @@ if (programError) console.log(`Program path failed (${programError}); fell back 
 
 if (event.type === "tx_failed") {
   console.error(`Failed via ${path}: ${event.error}`);
-  process.exitCode = 1;
+  await exit(1);
 } else {
+  try {
+    await printSuccess(event);
+  } catch (err) {
+    console.error(`Sent, but reading the log PDA failed: ${err instanceof Error ? err.message : String(err)}`);
+    await exit(1);
+  }
+  await exit(0); // everything printed: exit so no lingering handle can keep the terminal waiting
+}
+
+async function printSuccess(event: TxConfirmedEvent): Promise<void> {
   console.log(`Confirmed via ${path.toUpperCase()}.`);
   console.log(`Signature: ${event.signature}`);
   console.log(`Explorer:  ${explorerUrl(event.signature)}`);

@@ -13,7 +13,8 @@ import {
   LOG_ACCOUNT_DISCRIMINATOR, LOG_BATCH_DISCRIMINATOR, PROGRAM_ID,
 } from "../src/chain/program";
 import {
-  assertFits, buildProgramTransaction, createSender, MEMO_PROGRAM_ID, REPO_ROOT, type ChainConnection, type SenderConfig,
+  assertFits, buildProgramTransaction, createSender, MEMO_PROGRAM_ID, REPO_ROOT, waitForConfirmed,
+  type ChainConnection, type SenderConfig,
 } from "../src/chain/sender";
 
 const decision: AgentDecisionEvent = {
@@ -103,6 +104,18 @@ test("LogAccount decodes counters; anything else is rejected", () => {
 
 // ---------- Fallback (fake connection, no network) ----------
 
+type Status = { err: unknown; confirmationStatus?: string } | null;
+/** Statuses returned by successive getSignatureStatuses calls (the last one repeats). */
+function statusSequence(statuses: Status[], blockHeight = 0) {
+  let calls = 0;
+  const connection = {
+    getSignatureStatuses: async () => ({ context: { slot: 1 }, value: [statuses[Math.min(calls++, statuses.length - 1)]] }),
+    getBlockHeight: async () => blockHeight,
+  } as unknown as ChainConnection;
+  return { connection, calls: () => calls };
+}
+const CONFIRMED: Status = { err: null, confirmationStatus: "confirmed" };
+
 function fakeConnection(fail: { program?: boolean; memo?: boolean }) {
   const sent: ("program" | "memo")[] = [];
   const connection: ChainConnection = {
@@ -115,7 +128,8 @@ function fakeConnection(fail: { program?: boolean; memo?: boolean }) {
       if (fail[path]) throw new Error(`Simulation failed: ${path} unavailable`);
       return `sig_${path}`;
     },
-    confirmTransaction: (async () => ({ context: { slot: 1 }, value: { err: null } })) as ChainConnection["confirmTransaction"],
+    getSignatureStatuses: (async () => ({ context: { slot: 1 }, value: [CONFIRMED] })) as ChainConnection["getSignatureStatuses"],
+    getBlockHeight: async () => 0,
   };
   return { connection, sent };
 }
@@ -123,7 +137,7 @@ function fakeConnection(fail: { program?: boolean; memo?: boolean }) {
 const payer = Keypair.generate();
 const config = (forceMemo = false): SenderConfig => ({ rpcUrl: "http://fake", walletPath: "/nonexistent", forceMemo });
 const send = (c: ChainConnection, forceMemo = false) =>
-  createSender(config(forceMemo), { connection: c, loadPayer: () => payer }).send([decision, move], createIdSource(1), () => 7);
+  createSender(config(forceMemo), { connection: c, loadPayer: () => payer, pollMs: 0 }).send([decision, move], createIdSource(1), () => 7);
 
 test("program path is used by default when it works", async () => {
   const { connection, sent } = fakeConnection({});
@@ -160,4 +174,30 @@ test("if both paths fail, the result is tx_failed with both reasons available", 
   assert.equal(r.event.type, "tx_failed");
   assert.match(r.event.type === "tx_failed" ? r.event.error : "", /memo unavailable/);
   assert.match(r.programError ?? "", /program unavailable/);
+});
+
+// ---------- Confirmation by HTTP polling (no WebSocket, nothing left open) ----------
+
+test("waits through unseen and 'processed' until 'confirmed'", async () => {
+  const { connection, calls } = statusSequence([null, { err: null, confirmationStatus: "processed" }, CONFIRMED]);
+  await waitForConfirmed(connection, "sig", 1000, 0);
+  assert.equal(calls(), 3);
+});
+
+test("an on-chain error is reported", async () => {
+  const { connection } = statusSequence([null, { err: { InstructionError: [0, { Custom: 6001 }] } }]);
+  await assert.rejects(waitForConfirmed(connection, "sig", 1000, 0), /failed on-chain.*6001/);
+});
+
+test("expiry: block height past lastValidBlockHeight and still not landed", async () => {
+  const { connection } = statusSequence([null], 2000);
+  await assert.rejects(waitForConfirmed(connection, "sig", 1000, 0), /block height exceeded/);
+});
+
+test("a send leaves no timers or sockets that would keep Node alive", async () => {
+  const before = process.getActiveResourcesInfo().filter((r) => r !== "TTYWrap").length;
+  const { connection } = fakeConnection({ program: true }); // exercise the fallback too
+  await createSender(config(), { connection, loadPayer: () => payer }).send([decision], createIdSource(1), () => 0);
+  const after = process.getActiveResourcesInfo().filter((r) => r !== "TTYWrap").length;
+  assert.ok(after <= before, `active resources grew: ${process.getActiveResourcesInfo().join(", ")}`);
 });

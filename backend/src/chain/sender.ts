@@ -6,7 +6,9 @@
 //  - Signs with the keypair file at WALLET_PATH (default .keys/volatone-wallet.json).
 //    The secret key is only ever held in memory: never printed, logged or put in an error.
 //  - RPC: SOLANA_RPC_URL (default https://api.devnet.solana.com).
-//  - confirmMs is our own measurement: from sending the signed tx to "confirmed" commitment.
+//  - confirmMs is our own measurement: from sending the signed tx to "confirmed" commitment,
+//    found by polling over HTTP every CONFIRM_POLL_MS (so it can read up to ~150 ms high).
+//    No WebSockets: nothing is left open that would stop Node from exiting.
 //  - Always resolves: a tx_confirmed event on success, a tx_failed event on failure.
 //
 // The memo payload and transaction building are pure (no network) so they can be tested.
@@ -176,11 +178,24 @@ export interface Sender {
   send(batch: Batch, ids: IdSource, replayT: () => number): Promise<SendResult>;
 }
 
-/** The RPC calls the sender uses (a real Connection, or a fake in tests). */
-export type ChainConnection = Pick<Connection, "getLatestBlockhash" | "sendRawTransaction" | "confirmTransaction">;
+/**
+ * The RPC calls the sender uses (a real Connection, or a fake in tests). HTTP only:
+ * no confirmTransaction, whose WebSocket subscription can keep a Node process alive.
+ */
+export type ChainConnection = Pick<
+  Connection,
+  "getLatestBlockhash" | "sendRawTransaction" | "getSignatureStatuses" | "getBlockHeight"
+>;
+
+/** How often we poll for "confirmed". Bounds the extra time included in confirmMs. */
+export const CONFIRM_POLL_MS = 150;
+/** Re-check the block height (expiry) every this many polls. */
+const BLOCK_HEIGHT_EVERY = 10;
 
 export interface SenderDeps {
   connection?: ChainConnection;
+  /** Poll interval for confirmation (tests use 0). */
+  pollMs?: number;
   /** Defaults to loading config.walletPath on first send. */
   loadPayer?: () => Keypair;
 }
@@ -188,9 +203,33 @@ export interface SenderDeps {
 type BuildTx = (batch: Batch, payer: PublicKey, recentBlockhash: string) => Transaction;
 const buildMemoTx: BuildTx = (batch, payer, bh) => buildMemoTransaction(buildMemoPayload(batch), payer, bh);
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Polls (HTTP) until the signature reaches "confirmed" or "finalized". Throws if it failed
+ * on-chain or its blockhash expired (block height passed lastValidBlockHeight) without landing.
+ * Leaves no timers or sockets behind.
+ */
+export async function waitForConfirmed(
+  connection: ChainConnection, signature: string, lastValidBlockHeight: number, pollMs = CONFIRM_POLL_MS,
+): Promise<void> {
+  for (let i = 1; ; i++) {
+    const [status] = (await connection.getSignatureStatuses([signature])).value;
+    if (status?.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(status.err)}`);
+    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") return;
+    if (i % BLOCK_HEIGHT_EVERY === 0 && (await connection.getBlockHeight(COMMITMENT)) > lastValidBlockHeight) {
+      const [last] = (await connection.getSignatureStatuses([signature])).value; // one last look
+      if (last?.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(last.err)}`);
+      if (last?.confirmationStatus === "confirmed" || last?.confirmationStatus === "finalized") return;
+      throw new Error("block height exceeded: transaction expired before confirming");
+    }
+    await sleep(pollMs);
+  }
+}
+
 /** Builds, signs and sends one tx; resolves once "confirmed". confirmMs = send -> confirmed. */
 async function sendAndConfirm(
-  connection: ChainConnection, payer: Keypair, batch: Batch, build: BuildTx,
+  connection: ChainConnection, payer: Keypair, batch: Batch, build: BuildTx, pollMs: number,
 ): Promise<{ signature: string; confirmMs: number }> {
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(COMMITMENT);
   const tx = build(batch, payer.publicKey, blockhash);
@@ -200,15 +239,14 @@ async function sendAndConfirm(
 
   const started = performance.now();
   const signature = await connection.sendRawTransaction(raw, { preflightCommitment: COMMITMENT });
-  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, COMMITMENT);
-  const confirmMs = Math.round(performance.now() - started);
-  if (result.value.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(result.value.err)}`);
-  return { signature, confirmMs };
+  await waitForConfirmed(connection, signature, lastValidBlockHeight, pollMs);
+  return { signature, confirmMs: Math.round(performance.now() - started) };
 }
 
 export function createSender(config: SenderConfig = configFromEnv(), deps: SenderDeps = {}): Sender {
   const connection = deps.connection ?? new Connection(config.rpcUrl, COMMITMENT);
   const loadPayer = deps.loadPayer ?? (() => loadKeypair(config.walletPath));
+  const pollMs = deps.pollMs ?? CONFIRM_POLL_MS;
   let payer: Keypair | undefined; // loaded on first send, kept in memory only
 
   return {
@@ -228,14 +266,14 @@ export function createSender(config: SenderConfig = configFromEnv(), deps: Sende
       let programError: string | undefined;
       if (!config.forceMemo) {
         try {
-          return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildProgramTransaction)), path: "program" };
+          return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildProgramTransaction, pollMs)), path: "program" };
         } catch (err) {
           // Program tx didn't confirm (not deployed, simulation error, expired...): log via memo instead.
           programError = describeError(err);
         }
       }
       try {
-        return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildMemoTx)), path: "memo", programError };
+        return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildMemoTx, pollMs)), path: "memo", programError };
       } catch (err) {
         return { event: failed(err), path: "memo", programError };
       }
