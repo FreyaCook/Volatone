@@ -47,7 +47,7 @@ From the repo root:
 - Backend with real devnet logging: `npm run dev -w backend` (wallet at `.keys/volatone-wallet.json`, settings in `.env`)
 - Faster replay for testing: put `TICK_MS=250` in front (ms per replay second, default 1000).
 - Watch a run in a terminal: `npm run watch -w backend` (options after `--`: `--autoplay`, `--reset`, `--no-ticks`, `--url ws://host:port`).
-- Regenerate Gemini explanations (one API request, needs `GEMINI_API_KEY` in `.env`): `npm run make-explanations -w backend`. Writes `backend/src/agents/explanations.json`; any explanation failing validation (one sentence, under 160 chars, no advice words like buy/sell/should/guaranteed, starts with the agent name, names the corridor) uses the plain-English fallback instead. `-- --dry-run` prints the prompt without calling the API.
+- Regenerate Gemini explanations (one API request, needs `GEMINI_API_KEY` in `.env`): `npm run make-explanations -w backend`. Writes `backend/src/agents/explanations.json`; any explanation failing validation (one sentence, under 160 chars, no advice words like buy/sell/should/guaranteed, starts with the agent name, names the corridor) uses the plain-English fallback instead. `-- --dry-run` prints the prompt without calling the API; `-- --list-models` shows the eligible models (stable Flash-Lite text models first, then stable Flash) and which would be chosen; `-- --model <name>` forces one. On an HTTP 400 it tries the next eligible model, at most 3 requests in total.
 
 ## Cut list (cut in this order if behind)
 1. Stretch: cNFT minting, ear-training, MongoDB

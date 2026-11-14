@@ -3,14 +3,17 @@
 //
 //  - Reads GEMINI_API_KEY from the repo's .env (via Node's loadEnvFile) or the environment.
 //    The key is only sent in the x-goog-api-key header: never printed, logged or put in a URL.
-//  - Picks a Flash-Lite model by listing the models the API offers (stable over preview,
-//    newest version first). Override with --model <name>.
+//  - Picks a model by listing the models the API offers (see src/agents/models.ts): a stable
+//    Flash-Lite text model first, then a stable Flash text model. If a request fails with HTTP 400
+//    (e.g. the model doesn't support JSON mode), it tries the next eligible model: at most
+//    MAX_ATTEMPTS requests in total. --model <name> uses only that model.
 //  - Every explanation is validated (one sentence, under 160 chars, no advice words, starts with
 //    the agent's name, names the corridor). Any that fail are left out, so the engine keeps using
 //    the plain-English fallback for those decisions.
 //
 // Run:        npm run make-explanations -w backend
-// Options:    --model gemini-x.y-flash-lite   use this model instead of auto-picking
+// Options:    --list-models                   print the eligible models and the one that would be chosen
+//             --model gemini-x.y-flash-lite   use only this model instead of auto-picking
 //             --dry-run                       print the prompt and exit (no key, no request)
 
 import { existsSync, writeFileSync } from "node:fs";
@@ -20,13 +23,20 @@ import { planAgentDecisions } from "../src/agents/runner";
 import {
   buildPrompt, checkReply, EXPLANATIONS_PATH, RESPONSE_SCHEMA, type ExplanationsFile,
 } from "../src/agents/explanations";
+import { rankModels, type ModelInfo } from "../src/agents/models";
 import { REPO_ROOT } from "../src/chain/sender";
 import { loadStorm } from "../src/storm/committed";
 
 const API = "https://generativelanguage.googleapis.com/v1beta";
+/** Total generateContent requests allowed per run (stays well inside free-tier limits). */
+const MAX_ATTEMPTS = 3;
 
 const { values } = parseArgs({
-  options: { model: { type: "string" }, "dry-run": { type: "boolean", default: false } },
+  options: {
+    model: { type: "string" },
+    "list-models": { type: "boolean", default: false },
+    "dry-run": { type: "boolean", default: false },
+  },
 });
 
 const plan = planAgentDecisions(loadStorm());
@@ -46,8 +56,15 @@ if (!apiKey) {
 }
 const headers = { "x-goog-api-key": apiKey, "content-type": "application/json" };
 
+/** An API failure; `status` lets us retry the next model on a 400. */
+class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 /** A short error from a failed API response. Never includes the key (it is only in a header). */
-async function apiError(res: Response, what: string): Promise<Error> {
+async function apiError(res: Response, what: string): Promise<ApiError> {
   let detail = "";
   try {
     const body = (await res.json()) as { error?: { message?: string } };
@@ -55,12 +72,7 @@ async function apiError(res: Response, what: string): Promise<Error> {
   } catch {
     /* no JSON body */
   }
-  return new Error(`${what} failed: HTTP ${res.status}${detail ? ` - ${detail.slice(0, 200)}` : ""}`);
-}
-
-interface ModelInfo {
-  name: string; // "models/gemini-2.5-flash-lite"
-  supportedGenerationMethods?: string[];
+  return new ApiError(`${what} failed: HTTP ${res.status}${detail ? ` - ${detail.slice(0, 200)}` : ""}`, res.status);
 }
 
 async function listModels(): Promise<ModelInfo[]> {
@@ -75,21 +87,6 @@ async function listModels(): Promise<ModelInfo[]> {
     pageToken = body.nextPageToken ?? "";
   } while (pageToken);
   return all;
-}
-
-/** Newest stable Flash-Lite model that supports generateContent (preview/experimental only if nothing else). */
-function pickFlashLite(models: ModelInfo[]): string | null {
-  const ids = models
-    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
-    .map((m) => m.name.replace(/^models\//, ""))
-    .filter((id) => /flash-lite/i.test(id));
-  const version = (id: string) => Number(/gemini-(\d+(?:\.\d+)?)/.exec(id)?.[1] ?? 0);
-  const unstable = (id: string) => /preview|exp/i.test(id);
-  ids.sort(
-    (a, b) =>
-      Number(unstable(a)) - Number(unstable(b)) || version(b) - version(a) || a.length - b.length || a.localeCompare(b),
-  );
-  return ids[0] ?? null;
 }
 
 async function generate(model: string): Promise<unknown> {
@@ -115,16 +112,45 @@ async function generate(model: string): Promise<unknown> {
 }
 
 try {
-  let model = values.model?.replace(/^models\//, "");
-  if (!model) {
+  let candidates: string[];
+  if (values.model && !values["list-models"]) {
+    candidates = [values.model.replace(/^models\//, "")];
+  } else {
     const models = await listModels();
-    model = pickFlashLite(models) ?? undefined;
-    if (!model) throw new Error(`no Flash-Lite model with generateContent among ${models.length} models; pass --model`);
+    candidates = rankModels(models);
+    if (values["list-models"]) {
+      console.log(`Eligible models (${candidates.length} of ${models.length}), best first:`);
+      for (const [i, id] of candidates.entries()) {
+        const note = i === 0 ? "   <- would be chosen" : i < MAX_ATTEMPTS ? "   (next try after a 400 error)" : "";
+        console.log(`  ${id}${note}`);
+      }
+      if (values.model) console.log(`(--model ${values.model} would override this choice.)`);
+      process.exit(0);
+    }
+    if (candidates.length === 0) throw new Error(`no eligible Flash-Lite or Flash text model among ${models.length} models; pass --model`);
   }
-  console.log(`Model: ${model}`);
-  console.log(`Asking for ${plan.length} explanations in one request...`);
 
-  const checked = checkReply(await generate(model), plan);
+  let reply: unknown;
+  let model = "";
+  const attempts = candidates.slice(0, MAX_ATTEMPTS);
+  for (const [i, id] of attempts.entries()) {
+    console.log(`Attempt ${i + 1}/${attempts.length}: ${id}, asking for ${plan.length} explanations in one request...`);
+    try {
+      reply = await generate(id);
+      model = id;
+      break;
+    } catch (err) {
+      const last = i === attempts.length - 1;
+      if (err instanceof ApiError && err.status === 400 && !last) {
+        console.log(`  ${err.message}; trying the next model.`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  console.log(`Model that worked: ${model}`);
+
+  const checked = checkReply(reply, plan);
   const file: ExplanationsFile = { model, generatedAt: new Date().toISOString(), explanations: checked.accepted };
   writeFileSync(EXPLANATIONS_PATH, JSON.stringify(file, null, 2) + "\n");
 
