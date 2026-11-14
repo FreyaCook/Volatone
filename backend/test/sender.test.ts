@@ -3,11 +3,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Keypair } from "@solana/web3.js";
+import { ComputeBudgetInstruction, ComputeBudgetProgram, Keypair } from "@solana/web3.js";
 import type { AgentDecisionEvent, PlayerMoveEvent, PlayerOutcomeEvent } from "@volatone/shared";
 import { MAX_PER_TX, type Batch } from "../src/chain/batcher";
 import {
-  assertFits, buildMemoPayload, buildMemoTransaction, compactEvent, explorerUrl, MEMO_MAX_BYTES, TX_SIZE_LIMIT, transactionSize,
+  assertFits, buildMemoPayload, buildMemoTransaction, compactEvent, COMPUTE_UNIT_LIMIT, explorerUrl, MEMO_MAX_BYTES, MEMO_PROGRAM_ID,
+  TX_SIZE_LIMIT, transactionSize,
 } from "../src/chain/sender";
 
 const decision = (id: string): AgentDecisionEvent => ({
@@ -38,7 +39,20 @@ test("empty batch is refused", () => {
   assert.throws(() => buildMemoPayload([]), /empty batch/);
 });
 
-test(`a full batch of ${MAX_PER_TX} worst-case events fits well under the 1232-byte limit`, () => {
+test("transaction sets a 400,000 compute-unit limit first, with no priority fee, then the memo", () => {
+  const tx = buildMemoTransaction("x", Keypair.generate().publicKey, BLOCKHASH);
+  assert.equal(tx.instructions.length, 2);
+  const [budget, memo] = tx.instructions;
+  assert.ok(budget.programId.equals(ComputeBudgetProgram.programId));
+  assert.equal(ComputeBudgetInstruction.decodeInstructionType(budget), "SetComputeUnitLimit");
+  assert.equal(ComputeBudgetInstruction.decodeSetComputeUnitLimit(budget).units, COMPUTE_UNIT_LIMIT);
+  assert.equal(COMPUTE_UNIT_LIMIT, 400_000);
+  assert.ok(memo.programId.equals(MEMO_PROGRAM_ID));
+  assert.ok(!tx.instructions.some((ix) => ix.programId.equals(ComputeBudgetProgram.programId)
+    && ComputeBudgetInstruction.decodeInstructionType(ix) === "SetComputeUnitPrice"), "no priority fee");
+});
+
+test(`a full batch of ${MAX_PER_TX} worst-case events, plus the compute budget instruction, fits well under 1232 bytes`, () => {
   // Longest values: 9-char ids, "opportunist", risk with 2 dp.
   const batch: Batch = Array.from({ length: MAX_PER_TX }, (_, i) => decision(`evt_${String(99990 + i)}`));
   const memo = buildMemoPayload(batch);

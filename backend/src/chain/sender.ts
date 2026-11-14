@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
@@ -29,8 +30,13 @@ export const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
 export const DEFAULT_WALLET_PATH = ".keys/volatone-wallet.json";
 /** Solana's hard limit for a serialized transaction. */
 export const TX_SIZE_LIMIT = 1232;
-/** Our own cap on the memo, well under what fits (~1060 bytes for one signer + memo). */
+/** Our own cap on the memo, well under what fits (~1020 bytes with one signer + compute budget). */
 export const MEMO_MAX_BYTES = 800;
+/**
+ * Memo compute cost grows with memo length (measured: 128,240 CU for a 324-byte memo),
+ * so a full 8-event batch could pass the 200,000 default. Raise the cap; no priority fee.
+ */
+export const COMPUTE_UNIT_LIMIT = 400_000;
 const COMMITMENT: Commitment = "confirmed";
 
 /** Repo root (backend/src/chain -> ../../..). Relative paths are resolved from here. */
@@ -69,6 +75,7 @@ export function buildMemoPayload(batch: Batch): string {
 export function buildMemoTransaction(memo: string, payer: PublicKey, recentBlockhash: string): Transaction {
   const tx = new Transaction({ feePayer: payer, recentBlockhash });
   tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }),
     new TransactionInstruction({
       programId: MEMO_PROGRAM_ID,
       keys: [{ pubkey: payer, isSigner: true, isWritable: false }],
