@@ -1,0 +1,22 @@
+skip_local_validator = true
+
+[toolchain]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+volatone_log = "2jHECa8gr3VFYTuBvRxmB4BtX3DasybJFKixp5348HeN"
+
+[programs.devnet]
+volatone_log = "2jHECa8gr3VFYTuBvRxmB4BtX3DasybJFKixp5348HeN"
+
+[provider]
+cluster = "localnet"
+wallet = "../.keys/volatone-wallet.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
