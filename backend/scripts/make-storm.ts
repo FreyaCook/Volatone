@@ -83,9 +83,14 @@ const RISK_KEYFRAMES: Record<Corridor, [number, number][]> = {
  * Avoid |lean| = 0.5: half the moves would be exactly zero, and risk would saw-tooth.
  */
 const LEAN: Record<Corridor, [number, number][]> = {
-  "USD-JPY": [[0, 0], [18, -0.9], [56, -0.6], [100, 0.4]],
-  "EUR-JPY": [[0, 0], [42, -0.9], [80, -0.6], [112, 0.3], [126, 0.4]],
-  "EUR-USD": [[0, 0], [62, -0.6], [81, -1], [92, 1], [97, -0.7]],
+  // Storms swing both ways: the lean flips every ~8 s, so shock stays high but the
+  // price doesn't keep sliding (real storms whipsaw rather than fall in a straight line).
+  "USD-JPY": [[0, 0], [18, -0.9], [36, 0.6], [44, -0.6], [52, 0.6], [60, -0.6], [68, 0.6],
+    [76, -0.6], [84, 0.6], [92, -0.6], [100, 0.4]],
+  "EUR-JPY": [[0, 0], [42, -0.9], [56, 0.6], [64, -0.6], [72, 0.6], [80, -0.6], [90, 0.6],
+    [100, -0.6], [112, 0.3], [126, 0.4]],
+  "EUR-USD": [[0, 0], [62, -0.6], [73, 0.6], [81, -1], [92, 1], [97, -0.7], [105, 0.7],
+    [114, -0.7], [124, 0.4]],
   "GBP-USD": [[0, 0], [60, -0.9], [96, 0.4]],
 };
 
@@ -269,6 +274,9 @@ function bandsFor(c: Corridor, states: Record<Corridor, StormState[]>): Band[] {
 
 const BAND_WEIGHT = 20000;  // breaking a requirement costs far more than missing the curve
 const OPT_PAD = 0.01;
+const MAX_DRIFT = 0.035;         // soft limit: 3.5% from the start price
+const END_FALL_ALLOWED = 0.001;  // at most a 0.1% fall over the last 10 s
+const DRIFT_WEIGHT = 0.5;
 const SMOOTH_WEIGHT = 0.005;    // prefer move sizes that change gradually
 const RISK_SMOOTH_WEIGHT = 3;   // prefer map risk that doesn't jump around second to second
 const SIZE_SCALE = 0.002;   // move sizes are compared in units of 0.2%
@@ -297,6 +305,14 @@ function cost(
     }
     if (s >= 1) total += SMOOTH_WEIGHT * ((size[s] - size[s - 1]) / SIZE_SCALE) ** 2;
   }
+  // Realism: stay within ~3.5% of the start price, and don't still be falling at the end.
+  // (A move at `from` shifts every later price, so this looks at all of them.)
+  for (let s = from; s < SECONDS; s++) {
+    const away = Math.abs(Math.log(p[s] / p[0])) - MAX_DRIFT;
+    if (away > 0) total += DRIFT_WEIGHT * (away / 0.01) ** 2;
+  }
+  const endFall = (p[SECONDS - 11] - p[SECONDS - 1]) / p[SECONDS - 11] - END_FALL_ALLOWED;
+  if (endFall > 0) total += DRIFT_WEIGHT * (endFall / 0.001) ** 2;
   return total;
 }
 
@@ -363,6 +379,19 @@ function optimiseCorridor(c: Corridor, rand: () => number, states: Record<Corrid
 // 4. Build, verify, write
 // ---------------------------------------------------------------------------
 
+/** Start, low, end, total change, biggest peak-to-trough drop, change over the last 10 s. */
+export function realism(p: number[]): string {
+  let peak = p[0];
+  let drop = 0;
+  for (const x of p) {
+    peak = Math.max(peak, x);
+    drop = Math.max(drop, (peak - x) / peak);
+  }
+  const pct = (a: number, b: number) => (((b - a) / a) * 100).toFixed(2) + "%";
+  return `start ${p[0]}, low ${Math.min(...p)}, end ${p[p.length - 1]}, total ${pct(p[0], p[p.length - 1])}, ` +
+    `biggest drop ${(drop * 100).toFixed(2)}%, last 10 s ${pct(p[p.length - 11], p[p.length - 1])}`;
+}
+
 function main(): void {
   const rand = mulberry32(SEED);
   const states = designedStates();
@@ -372,6 +401,7 @@ function main(): void {
     const r = optimiseCorridor(c, rand, states);
     prices[c] = r.prices;
     console.log(`${c}: largest gap from the target curve = ${r.worstGap.toFixed(3)}, broken requirements = ${r.broken.length}`);
+    console.log(`   ${realism(r.prices)}`);
     for (const b of r.broken) {
       console.log(`   second ${b.second} ${b.q} = ${quantity(b.q, r.prices, b.second).toFixed(3)}, wanted [${b.lo.toFixed(3)}, ${b.hi.toFixed(3)})`);
       ok = false;

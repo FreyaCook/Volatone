@@ -103,3 +103,26 @@ test("analysis is deterministic: analysing the same data twice gives identical r
   assert.deepEqual(a.escalations, b.escalations);
   assert.deepEqual(a.signals, b.signals);
 });
+
+test("realism: no corridor drops more than 5%, and none is still falling at the end", () => {
+  for (const c of CORRIDORS) {
+    const p = STORM.prices[c];
+    let peak = p[0];
+    let worst = 0;
+    for (const x of p) {
+      peak = Math.max(peak, x);
+      worst = Math.max(worst, (peak - x) / peak);
+    }
+    assert.ok(worst <= 0.05, `${c} drops ${(worst * 100).toFixed(2)}%`);
+    const last10 = (p[150] - p[140]) / p[140];
+    assert.ok(last10 > -0.001, `${c} still falling: ${(last10 * 100).toFixed(2)}% in the last 10 s`);
+  }
+});
+
+test("EUR-USD really bounces before decision point 3 (95 s)", () => {
+  const s = storm.signals["EUR-USD"][95];
+  assert.ok(s.bounceBack >= 0.4, `only ${(s.bounceBack * 100).toFixed(0)}% of the drop undone`);
+  const p = STORM.prices["EUR-USD"];
+  const low = Math.min(...p.slice(85, 96));
+  assert.ok(p[95] > low, "price at 95 s is above its recent low");
+});
