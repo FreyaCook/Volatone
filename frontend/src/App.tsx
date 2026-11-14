@@ -16,7 +16,7 @@ import { tplus } from "./format";
 
 // TODO: set to true (or delete this flag) after merging the engine branch: shared/protocol.ts will then
 // carry the optional `speed` on start/reset. Until then the speed keys are disabled outside mock mode.
-const PROTOCOL_HAS_SPEED = false;
+const PROTOCOL_HAS_SPEED = true;
 const SPEED_ENABLED = MOCK || PROTOCOL_HAS_SPEED;
 const AUTOPILOT_DELAY_MS = 2500;
 
