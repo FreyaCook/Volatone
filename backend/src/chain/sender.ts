@@ -1,5 +1,7 @@
-// Sends ONE batch as ONE real Solana devnet transaction: a single Memo instruction
-// holding a compact JSON record of the batch's events (ids, types, key fields; no text).
+// Sends ONE batch as ONE real Solana devnet transaction, by one of two paths:
+//  - "program" (default): log_batch on our volatone_log Anchor program (see program.ts).
+//  - "memo" (automatic fallback if the program tx fails, or forced with LOG_VIA=memo):
+//    a single Memo instruction holding a compact JSON record of the batch's events.
 //
 //  - Signs with the keypair file at WALLET_PATH (default .keys/volatone-wallet.json).
 //    The secret key is only ever held in memory: never printed, logged or put in an error.
@@ -24,6 +26,7 @@ import {
 import type { TxConfirmedEvent, TxFailedEvent } from "@volatone/shared";
 import type { IdSource } from "../ids";
 import type { Batch, LoggableEvent } from "./batcher";
+import { buildLogBatchInstruction } from "./program";
 
 export const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 export const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
@@ -85,6 +88,12 @@ export function buildMemoTransaction(memo: string, payer: PublicKey, recentBlock
   return tx;
 }
 
+/** log_batch on the volatone_log program. No compute-budget instruction (it uses ~10,600 CU). */
+export function buildProgramTransaction(batch: Batch, payer: PublicKey, recentBlockhash: string): Transaction {
+  if (batch.length === 0) throw new Error("empty batch: nothing to log");
+  return new Transaction({ feePayer: payer, recentBlockhash }).add(buildLogBatchInstruction(batch, payer));
+}
+
 /** Serialized size in bytes of a one-signer tx (signature slot counted even if unsigned). */
 export function transactionSize(tx: Transaction): number {
   return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).length;
@@ -108,12 +117,15 @@ export function assertFits(tx: Transaction): number {
 export interface SenderConfig {
   rpcUrl: string;
   walletPath: string; // absolute
+  /** Skip the program and always use the memo path. Set with LOG_VIA=memo. */
+  forceMemo: boolean;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SenderConfig {
   const rpcUrl = env.SOLANA_RPC_URL?.trim() || DEFAULT_RPC_URL;
   const raw = env.WALLET_PATH?.trim() || DEFAULT_WALLET_PATH;
-  return { rpcUrl, walletPath: isAbsolute(raw) ? raw : resolve(REPO_ROOT, raw) };
+  const forceMemo = env.LOG_VIA?.trim().toLowerCase() === "memo";
+  return { rpcUrl, walletPath: isAbsolute(raw) ? raw : resolve(REPO_ROOT, raw), forceMemo };
 }
 
 /** Loads a Solana CLI keypair file (JSON array of 64 bytes). Errors never include file contents. */
@@ -149,36 +161,83 @@ export function describeError(err: unknown): string {
 
 // ---------- Sending (network) ----------
 
-export interface Sender {
-  /** Sends one batch as one tx. Always resolves with a tx_confirmed or tx_failed event. */
-  send(batch: Batch, ids: IdSource, replayT: () => number): Promise<TxConfirmedEvent | TxFailedEvent>;
+export type LogPath = "program" | "memo";
+
+export interface SendResult {
+  event: TxConfirmedEvent | TxFailedEvent;
+  /** The path of the tx that produced `event` (the memo path if we fell back). */
+  path: LogPath;
+  /** Why the program path failed, when we fell back to memo. */
+  programError?: string;
 }
 
-export function createSender(config: SenderConfig = configFromEnv()): Sender {
-  const connection = new Connection(config.rpcUrl, COMMITMENT);
+export interface Sender {
+  /** Sends one batch as one tx. Always resolves; never throws. */
+  send(batch: Batch, ids: IdSource, replayT: () => number): Promise<SendResult>;
+}
+
+/** The RPC calls the sender uses (a real Connection, or a fake in tests). */
+export type ChainConnection = Pick<Connection, "getLatestBlockhash" | "sendRawTransaction" | "confirmTransaction">;
+
+export interface SenderDeps {
+  connection?: ChainConnection;
+  /** Defaults to loading config.walletPath on first send. */
+  loadPayer?: () => Keypair;
+}
+
+type BuildTx = (batch: Batch, payer: PublicKey, recentBlockhash: string) => Transaction;
+const buildMemoTx: BuildTx = (batch, payer, bh) => buildMemoTransaction(buildMemoPayload(batch), payer, bh);
+
+/** Builds, signs and sends one tx; resolves once "confirmed". confirmMs = send -> confirmed. */
+async function sendAndConfirm(
+  connection: ChainConnection, payer: Keypair, batch: Batch, build: BuildTx,
+): Promise<{ signature: string; confirmMs: number }> {
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(COMMITMENT);
+  const tx = build(batch, payer.publicKey, blockhash);
+  assertFits(tx);
+  tx.sign(payer);
+  const raw = tx.serialize();
+
+  const started = performance.now();
+  const signature = await connection.sendRawTransaction(raw, { preflightCommitment: COMMITMENT });
+  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, COMMITMENT);
+  const confirmMs = Math.round(performance.now() - started);
+  if (result.value.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(result.value.err)}`);
+  return { signature, confirmMs };
+}
+
+export function createSender(config: SenderConfig = configFromEnv(), deps: SenderDeps = {}): Sender {
+  const connection = deps.connection ?? new Connection(config.rpcUrl, COMMITMENT);
+  const loadPayer = deps.loadPayer ?? (() => loadKeypair(config.walletPath));
   let payer: Keypair | undefined; // loaded on first send, kept in memory only
 
   return {
     async send(batch, ids, replayT) {
       const eventIds = batch.map((e) => e.id);
+      const confirmed = (r: { signature: string; confirmMs: number }): TxConfirmedEvent =>
+        ({ id: ids.next(), t: replayT(), type: "tx_confirmed", signature: r.signature, eventIds, confirmMs: r.confirmMs });
+      const failed = (err: unknown): TxFailedEvent =>
+        ({ id: ids.next(), t: replayT(), type: "tx_failed", eventIds, error: describeError(err) });
+
       try {
-        payer ??= loadKeypair(config.walletPath);
-        const memo = buildMemoPayload(batch);
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(COMMITMENT);
-        const tx = buildMemoTransaction(memo, payer.publicKey, blockhash);
-        assertFits(tx);
-        tx.sign(payer);
-        const raw = tx.serialize();
-
-        const started = performance.now();
-        const signature = await connection.sendRawTransaction(raw, { preflightCommitment: COMMITMENT });
-        const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, COMMITMENT);
-        const confirmMs = Math.round(performance.now() - started);
-        if (result.value.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(result.value.err)}`);
-
-        return { id: ids.next(), t: replayT(), type: "tx_confirmed", signature, eventIds, confirmMs };
+        payer ??= loadPayer();
       } catch (err) {
-        return { id: ids.next(), t: replayT(), type: "tx_failed", eventIds, error: describeError(err) };
+        return { event: failed(err), path: config.forceMemo ? "memo" : "program" };
+      }
+
+      let programError: string | undefined;
+      if (!config.forceMemo) {
+        try {
+          return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildProgramTransaction)), path: "program" };
+        } catch (err) {
+          // Program tx didn't confirm (not deployed, simulation error, expired...): log via memo instead.
+          programError = describeError(err);
+        }
+      }
+      try {
+        return { event: confirmed(await sendAndConfirm(connection, payer, batch, buildMemoTx)), path: "memo", programError };
+      } catch (err) {
+        return { event: failed(err), path: "memo", programError };
       }
     },
   };

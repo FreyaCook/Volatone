@@ -82,3 +82,10 @@ test("oversized memo is refused before building a transaction", () => {
 test("Explorer link points at devnet", () => {
   assert.equal(explorerUrl("abc"), "https://explorer.solana.com/tx/abc?cluster=devnet");
 });
+
+test("LOG_VIA=memo forces the memo path; default is the program", async () => {
+  const { configFromEnv } = await import("../src/chain/sender");
+  assert.equal(configFromEnv({}).forceMemo, false);
+  assert.equal(configFromEnv({ LOG_VIA: "memo" }).forceMemo, true);
+  assert.equal(configFromEnv({ LOG_VIA: "program" }).forceMemo, false);
+});

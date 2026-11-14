@@ -1,9 +1,11 @@
 // Sends one realistic test batch as ONE real devnet transaction, then prints the
-// signature, an Explorer link and confirmMs.
+// path used (program, or memo fallback), signature, Explorer link and confirmMs.
+// After a program send it also reads the log PDA and prints its counters.
 //   Default:      3 agent decisions + 1 player move (4 events).
 //   --events 8:   a full batch: 6 agent decisions + 1 player outcome + 1 player move.
 //                 (Only one move, last: under the batching rule a move flushes at once.)
 // Run: npm run send-test-batch -w backend [-- --events 8]
+// Force the memo path: LOG_VIA=memo npm run send-test-batch -w backend
 // Needs: a funded devnet wallet at WALLET_PATH (default .keys/volatone-wallet.json).
 // Optional: SOLANA_RPC_URL in .env (default https://api.devnet.solana.com).
 
@@ -13,7 +15,9 @@ import { parseArgs } from "node:util";
 import type { AgentDecisionEvent, PlayerMoveEvent, PlayerOutcomeEvent } from "@volatone/shared";
 import { createIdSource } from "../src/ids";
 import { MAX_PER_TX, type Batch } from "../src/chain/batcher";
-import { buildMemoPayload, configFromEnv, createSender, explorerUrl, REPO_ROOT } from "../src/chain/sender";
+import { Connection } from "@solana/web3.js";
+import { buildMemoPayload, configFromEnv, createSender, explorerUrl, loadKeypair, REPO_ROOT } from "../src/chain/sender";
+import { deriveLogPda, fetchLogCounters, PROGRAM_ID } from "../src/chain/program";
 
 const { values } = parseArgs({ options: { events: { type: "string", default: "4" } } });
 const count = Number(values.events);
@@ -53,18 +57,39 @@ const batch: Batch =
         move("GBP-USD", "reduce"),
       ];
 
+const config = configFromEnv();
 const memo = buildMemoPayload(batch);
 const usingDefaultRpc = !process.env.SOLANA_RPC_URL?.trim();
 console.log(`Sending ${batch.length} events in one devnet transaction (${usingDefaultRpc ? "public devnet RPC" : "RPC from .env"})...`);
-console.log(`Memo (${Buffer.byteLength(memo)} bytes): ${memo}`);
+console.log(config.forceMemo ? "Path: memo (forced by LOG_VIA=memo)" : `Path: program ${PROGRAM_ID.toBase58()}, memo fallback`);
+console.log(`Memo fallback payload (${Buffer.byteLength(memo)} bytes): ${memo}`);
 
-const result = await createSender(configFromEnv()).send(batch, ids, () => 0);
-if (result.type === "tx_confirmed") {
-  console.log(`Confirmed.`);
-  console.log(`Signature: ${result.signature}`);
-  console.log(`Explorer:  ${explorerUrl(result.signature)}`);
-  console.log(`confirmMs: ${result.confirmMs}`);
-} else {
-  console.error(`Failed: ${result.error}`);
+const connection = new Connection(config.rpcUrl, "confirmed");
+const { event, path, programError } = await createSender(config, { connection }).send(batch, ids, () => 0);
+if (programError) console.log(`Program path failed (${programError}); fell back to memo.`);
+
+if (event.type === "tx_failed") {
+  console.error(`Failed via ${path}: ${event.error}`);
   process.exitCode = 1;
+} else {
+  console.log(`Confirmed via ${path.toUpperCase()}.`);
+  console.log(`Signature: ${event.signature}`);
+  console.log(`Explorer:  ${explorerUrl(event.signature)}`);
+  console.log(`confirmMs: ${event.confirmMs}`);
+
+  if (path === "program") {
+    const wallet = loadKeypair(config.walletPath).publicKey; // public key only
+    const counters = await fetchLogCounters(connection, wallet);
+    const pda = deriveLogPda(wallet).toBase58();
+    console.log(`\nOn-chain log PDA ${pda}`);
+    console.log(`  https://explorer.solana.com/address/${pda}?cluster=devnet`);
+    if (!counters) console.log("  (not found yet)");
+    else {
+      console.log(`  decisions: ${counters.decisions}`);
+      console.log(`  moves:     ${counters.moves}`);
+      console.log(`  outcomes:  ${counters.outcomes}`);
+      console.log(`  batches:   ${counters.batches}`);
+      console.log(`  last slot: ${counters.lastSlot}`);
+    }
+  }
 }
