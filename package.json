@@ -1,0 +1,13 @@
+{
+  "name": "volatone",
+  "private": true,
+  "workspaces": ["shared", "backend", "frontend"],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
