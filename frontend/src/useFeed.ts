@@ -25,6 +25,8 @@ export function useFeed() {
     };
     const t = MOCK ? connectMock(handlers, Number(params.get("tick")) || 1000) : connectWs(WS_URL, handlers);
     transport.current = t;
+    // Dev aid for screenshots: ?mock=1&autostart=1&speed=3 starts the mock replay by itself.
+    if (MOCK && params.has("autostart")) t.send({ type: "start", speed: (Number(params.get("speed")) || 1) as 1 | 2 | 3 });
     return () => t.close();
   }, []);
 
