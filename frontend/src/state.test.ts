@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Corridor, StormState, VolatoneEvent } from "@volatone/shared";
-import { initialState, openPrompt, promptViews, reduce, stormCount, type State } from "./state";
+import { autopilotAction, cycloneRisk, initialState, openPrompt, promptViews, reduce, secondsLeft, stormCount, stormIndex, worstState, type State } from "./state";
 
 let n = 0;
 const id = () => `evt_${String(++n).padStart(4, "0")}`;
@@ -102,5 +102,45 @@ describe("prompts", () => {
   it("a move on another corridor does not answer the prompt", () => {
     const s = fold([tick(27_000, "USD-JPY", "storm"), { id: id(), t: 27_000, type: "player_move", corridor: "EUR-USD", action: "hold" }]);
     expect(openPrompt(s)?.corridor).toBe("USD-JPY");
+  });
+});
+
+describe("derived values", () => {
+  it("indexSeries holds the mean risk by replay second; the last tick of a second wins", () => {
+    const s = fold([
+      tick(0, "USD-JPY", "calm", 0.4), tick(0, "EUR-JPY", "calm", 0.4), tick(0, "EUR-USD", "calm", 0.4), tick(0, "GBP-USD", "calm", 0.4),
+      tick(1000, "USD-JPY", "storm", 0.8), tick(1000, "EUR-JPY", "calm", 0.4), tick(1000, "EUR-USD", "calm", 0.4), tick(1000, "GBP-USD", "calm", 0.4),
+    ]);
+    expect(s.indexSeries[0]).toBeCloseTo(0.4);
+    expect(s.indexSeries[1]).toBeCloseTo(0.5);
+    expect(stormIndex(s)).toBeCloseTo(0.5);
+  });
+
+  it("feed mixes decisions, moves and outcomes, newest first", () => {
+    const dec: VolatoneEvent = { id: id(), t: 1, type: "agent_decision", agent: "sentinel", corridor: "USD-JPY", risk: 0.5, action: "hold", explanation: "x" };
+    const mv: VolatoneEvent = { id: id(), t: 2, type: "player_move", corridor: "USD-JPY", action: "hedge" };
+    const out: VolatoneEvent = { id: id(), t: 3, type: "player_outcome", moveId: mv.id, result: "good", reason: "r" };
+    expect(fold([dec, mv, out]).feed.map((f) => f.type)).toEqual(["player_outcome", "player_move", "agent_decision"]);
+  });
+
+  it("cyclone risk follows the worse Japanese corridor", () => {
+    const s = fold([tick(1000, "USD-JPY", "spreading", 0.4), tick(1000, "EUR-JPY", "storm", 0.9), tick(1000, "GBP-USD", "calm", 0.99)]);
+    expect(cycloneRisk(s)).toBe(0.9);
+    expect(worstState(s, ["USD-JPY", "GBP-USD"])).toBe("spreading");
+  });
+
+  it("secondsLeft counts down from 8 while a prompt is open and is 0 otherwise", () => {
+    const at = (ms: number) => promptViews(fold([tick(ms, "USD-JPY", "storm")]))[0];
+    expect(secondsLeft(fold([tick(25_000, "USD-JPY", "storm")]), at(25_000))).toBe(8);
+    expect(secondsLeft(fold([tick(32_000, "USD-JPY", "storm")]), at(32_000))).toBe(1);
+    expect(secondsLeft(fold([tick(33_000, "USD-JPY", "storm")]), at(33_000))).toBe(0);
+  });
+
+  it("autopilot follows Sentinel's latest view of that corridor, or holds if there is none", () => {
+    const d = (action: "hedge" | "reduce"): VolatoneEvent =>
+      ({ id: id(), t: 1, type: "agent_decision", agent: "sentinel", corridor: "EUR-USD", risk: 0.7, action, explanation: "x" });
+    const s = fold([d("hedge"), d("reduce")]);
+    expect(autopilotAction(s, "EUR-USD")).toBe("reduce");
+    expect(autopilotAction(s, "USD-JPY")).toBe("hold");
   });
 });
