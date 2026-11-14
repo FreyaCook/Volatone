@@ -1,0 +1,60 @@
+// WebSocket feed for the replay engine.
+//  - Server -> client: each VolatoneEvent as JSON. On connect, every event since the current run began.
+//  - Client -> server: ClientMessage JSON (shared/protocol.ts). Anything invalid is ignored (logged here).
+
+import { WebSocketServer, type WebSocket } from "ws";
+import type { Action, Corridor } from "@volatone/shared";
+import type { ClientMessage } from "@volatone/shared/protocol";
+import { CORRIDORS } from "../storm/storm";
+import type { ReplayEngine } from "./replay";
+
+const ACTIONS: readonly Action[] = ["hedge", "hold", "reduce"];
+
+/** Parses and validates one client message. null if it isn't a valid ClientMessage. */
+export function parseClientMessage(raw: string): ClientMessage | null {
+  let m: unknown;
+  try {
+    m = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof m !== "object" || m === null) return null;
+  const o = m as Record<string, unknown>;
+  switch (o.type) {
+    case "start":
+    case "reset":
+      return { type: o.type };
+    case "player_move":
+      if (!CORRIDORS.includes(o.corridor as Corridor) || !ACTIONS.includes(o.action as Action)) return null;
+      return { type: "player_move", corridor: o.corridor as Corridor, action: o.action as Action };
+    default:
+      return null;
+  }
+}
+
+export function attachServer(
+  wss: WebSocketServer,
+  engine: ReplayEngine,
+  log: (msg: string) => void = () => {},
+): () => void {
+  const send = (ws: WebSocket, data: string) => {
+    if (ws.readyState === ws.OPEN) ws.send(data);
+  };
+  const unsubscribe = engine.subscribe((e) => {
+    const data = JSON.stringify(e);
+    for (const ws of wss.clients) send(ws, data);
+  });
+
+  wss.on("connection", (ws) => {
+    for (const e of engine.history()) send(ws, JSON.stringify(e)); // late joiner catch-up
+    ws.on("message", (data) => {
+      const msg = parseClientMessage(data.toString());
+      if (!msg) return log(`ignored invalid client message: ${data.toString().slice(0, 100)}`);
+      if (msg.type === "start") engine.start();
+      else if (msg.type === "reset") engine.reset();
+      else engine.playerMove(msg.corridor, msg.action);
+    });
+  });
+
+  return unsubscribe;
+}

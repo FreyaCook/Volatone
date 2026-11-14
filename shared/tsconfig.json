@@ -1,4 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
-  "include": ["events.ts"]
+  "include": [
+    "events.ts",
+    "protocol.ts"
+  ]
 }

@@ -7,5 +7,9 @@
   "types": "events.ts",
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./events.ts",
+    "./protocol": "./protocol.ts"
   }
 }
