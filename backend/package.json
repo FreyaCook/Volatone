@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "make-storm": "tsx scripts/make-storm.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "send-test-batch": "tsx scripts/send-test-batch.ts"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",

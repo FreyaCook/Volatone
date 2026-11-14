@@ -85,7 +85,13 @@ export function transactionSize(tx: Transaction): number {
 
 /** Throws if the transaction would exceed Solana's size limit. */
 export function assertFits(tx: Transaction): number {
-  const size = transactionSize(tx);
+  let size: number;
+  try {
+    size = transactionSize(tx);
+  } catch {
+    // web3.js can't even serialize past its 1232-byte buffer (RangeError / "too large").
+    throw new Error(`transaction too big: over the ${TX_SIZE_LIMIT}-byte limit`);
+  }
   if (size > TX_SIZE_LIMIT) throw new Error(`transaction too big: ${size} bytes (limit ${TX_SIZE_LIMIT})`);
   return size;
 }
