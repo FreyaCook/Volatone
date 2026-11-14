@@ -4,13 +4,15 @@
 //   npm run watch -w backend -- --autoplay      also answer each prompt with the agents' majority view
 //   npm run watch -w backend -- --reset         reset the storm first, then watch from t = 0
 //   npm run watch -w backend -- --no-ticks      hide the per-second tick lines
+//   npm run watch -w backend -- --speed 3       run speed: 1 Normal, 2 Fast, 3 Rush (default 1;
+//                                               with --reset, the default keeps the server's speed)
 //   --url ws://host:port                        (default ws://localhost:$PORT or 8080)
 // Sending "start" while a run is going does nothing; when a run has finished it starts a new one.
 
 import { parseArgs } from "node:util";
 import WebSocket from "ws";
 import type { Action, AgentName, Corridor, TickEvent, VolatoneEvent } from "@volatone/shared";
-import { DECISION_POINTS, PROMPT_SECONDS, type ClientMessage } from "@volatone/shared/protocol";
+import { DECISION_POINTS, PROMPT_SECONDS, SPEEDS, type ClientMessage, type Speed } from "@volatone/shared/protocol";
 
 const { values } = parseArgs({
   options: {
@@ -18,8 +20,15 @@ const { values } = parseArgs({
     autoplay: { type: "boolean", default: false },
     reset: { type: "boolean", default: false },
     "no-ticks": { type: "boolean", default: false },
+    speed: { type: "string" },
   },
 });
+
+const speed = values.speed === undefined ? undefined : (Number(values.speed) as Speed);
+if (speed !== undefined && !SPEEDS.includes(speed)) {
+  console.error("--speed must be 1, 2 or 3");
+  process.exit(1);
+}
 
 const ws = new WebSocket(values.url!);
 const send = (m: ClientMessage) => ws.send(JSON.stringify(m));
@@ -89,7 +98,7 @@ function print(e: VolatoneEvent): void {
       views = new Map();
       answered = new Set();
       openDp = null;
-      return console.log(`\n${at}  RESET     storm restarted  [${e.id}]`);
+      return console.log(`\n${at}  RESET     storm restarted${e.speed ? ` at speed ${e.speed}` : ""}  [${e.id}]`);
     case "tx_confirmed":
       return console.log(`${at}  TX OK     ${e.eventIds.length} events, confirmed in ${e.confirmMs} ms  https://explorer.solana.com/tx/${e.signature}?cluster=devnet`);
     case "tx_failed":
@@ -98,8 +107,9 @@ function print(e: VolatoneEvent): void {
 }
 
 ws.on("open", () => {
-  console.log(`connected to ${values.url}${values.autoplay ? " (autoplay)" : ""}`);
-  send({ type: values.reset ? "reset" : "start" });
+  console.log(`connected to ${values.url}${values.autoplay ? " (autoplay)" : ""}${speed ? ` (speed ${speed})` : ""}`);
+  const type = values.reset ? "reset" : "start";
+  send(speed ? { type, speed } : { type });
 });
 ws.on("message", (data) => print(JSON.parse(data.toString()) as VolatoneEvent));
 ws.on("close", () => {
