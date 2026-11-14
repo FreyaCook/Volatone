@@ -8,7 +8,7 @@ A replay of a hard-coded market storm. A world map shows currency corridors goin
 
 ## Hard rules (keep every claim true)
 - Solana DEVNET only, fake money only (devnet SOL + custom demo SPL tokens: demo GBP, EUR, USD, JPY).
-- Every agent decision and player move is a real devnet transaction (small custom Anchor program, worker on Vultr). Batched. Meaningful events only, no padding.
+- Every agent decision, player move and player outcome is logged in a real devnet transaction (small custom Anchor program, worker on Vultr). Batched: a player move is sent at once; everything else (including player_outcome) rides in the next batch, sent when the oldest waiting event has waited 3 s; max 8 per tx. Meaningful events only, no padding. A missed prompt logs nothing (UI shows "missed").
 - Say "confirmed in about a second", not "sub-second finality". Say "transfers/logged moves", not "swaps".
 - Report only our own measured numbers (tx count, latency).
 - Not financial advice. A simulation. Pitch as "designed to help", not proven.
@@ -37,5 +37,6 @@ NEVER cut: real Solana transactions, Vultr deploy, the map, basic music, Reset s
 ## Decisions so far
 - Name: Volatone. Working solo.
 - Map library: undecided.
-- SGX data: use if usable, else synthetic.
+- SGX data: use if usable, else synthetic. Current storm is synthetic: `backend/src/storm/storm.json` (150 s, from seeded `backend/scripts/make-storm.ts`), locked by `npm test`.
+- Agents announce a new action only after it holds 4 scores in a row (Strategist scores every 10 s); at a decision point they state any changed view at once. ~43 decisions, ~22 devnet txs per replay (simulated).
 - Gate: custom Solana program must work by 22:30, else fall back.

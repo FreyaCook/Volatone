@@ -39,7 +39,7 @@ export interface PlayerMoveEvent extends BaseEvent {
   action: Action;
 }
 
-/** How a player move turned out. Music resolves on "good", stays unresolved on "poor". */
+/** How a player move turned out. Written to devnet (rides in the next batch). Music resolves on "good", stays unresolved on "poor". */
 export interface PlayerOutcomeEvent extends BaseEvent {
   type: "player_outcome";
   moveId: string;  // id of the player_move event this judges
@@ -64,7 +64,7 @@ export interface ResetEvent extends BaseEvent {
 export interface TxConfirmedEvent extends BaseEvent {
   type: "tx_confirmed";
   signature: string;  // base58 Solana signature (Explorer link, devnet cluster)
-  eventIds: string[]; // ids of the agent_decision / player_move events in this tx
+  eventIds: string[]; // ids of the agent_decision / player_move / player_outcome events in this tx
   confirmMs: number;  // our measured time from send to "confirmed" commitment
 }
 
