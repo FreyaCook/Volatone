@@ -20,22 +20,11 @@ A replay of a hard-coded market storm. A world map shows currency corridors goin
 - Music: Web Audio API. Narration: ElevenLabs (pre-generated). Explanations: Gemini (cached, with fallback text)
 - Data: Tiger Data for time-series ticks (cut-list item)
 
-## Event format (DRAFT - to be finalised with Opus before coding)
-All parts of the system talk through one event shape:
-```json
-{
-  "id": "evt_0001",
-  "t": 0,
-  "type": "tick | agent_decision | player_move | escalation",
-  "corridor": "GBP-USD",
-  "risk": 0.0,
-  "state": "calm | spreading | storm",
-  "agent": "sentinel | opportunist | strategist | player",
-  "action": "none | hedge | hold | reduce",
-  "explanation": "plain-English text",
-  "txSignature": null
-}
-```
+## Event format
+FINAL. Source of truth: `shared/events.ts` (discriminated union on `type`). Don't redefine event shapes anywhere else.
+- Types: tick, agent_decision, player_move, player_outcome, escalation, reset, tx_confirmed, tx_failed.
+- `t` = ms since the current run started (restarts at 0 after reset). Event ids never restart.
+- Signatures arrive later in `tx_confirmed` (with `eventIds` and measured `confirmMs`), not on the decision itself.
 
 ## Cut list (cut in this order if behind)
 1. Stretch: cNFT minting, ear-training, MongoDB
