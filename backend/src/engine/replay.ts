@@ -27,6 +27,7 @@ import type {
   PlayerOutcomeEvent,
   VolatoneEvent,
 } from "@volatone/shared";
+import { explanationKey } from "../agents/explanations";
 import { planAgentDecisions, toEvent, type PlannedDecision } from "../agents/runner";
 import { Batcher, type Batch, type LoggableEvent } from "../chain/batcher";
 import type { Sender } from "../chain/sender";
@@ -41,9 +42,6 @@ export type ReplayState = "idle" | "running" | "finished";
 /** How often the Batcher is asked what is due. */
 export const FLUSH_CHECK_MS = 250;
 
-/** Key for a cached explanation of one planned decision. */
-export const explanationKey = (d: Pick<PlannedDecision, "second" | "agent" | "corridor">): string =>
-  `${d.second}:${d.agent}:${d.corridor}`;
 
 export interface EngineOptions {
   storm?: AnalysedStorm;

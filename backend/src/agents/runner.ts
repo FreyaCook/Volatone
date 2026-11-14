@@ -110,7 +110,7 @@ export function fallbackExplanation(d: PlannedDecision): string {
       return d.action === "hold"
         ? `${who}: ${d.corridor} has settled (risk ${pct}%). No protection needed for now.`
         : d.action === "hedge"
-          ? `${who}: ${d.corridor} is moving sharply (risk ${pct}%). Buying protection, just in case.`
+          ? `${who}: ${d.corridor} is moving sharply (risk ${pct}%). Adding protection, just in case.`
           : `${who}: ${d.corridor} is moving violently (risk ${pct}%). Cutting exposure now.`;
     case "opportunist":
       return d.action === "hold"

@@ -268,3 +268,17 @@ test("parseClientMessage accepts only the three message shapes", () => {
     assert.equal(parseClientMessage(bad), null, bad);
   }
 });
+
+test("the engine uses a cached explanation when present, the fallback otherwise", async () => {
+  const { explanationKey } = await import("../src/agents/explanations");
+  const { fallbackExplanation } = await import("../src/agents/runner");
+  const clock = new FakeClock();
+  const [a, b] = plan;
+  const engine = new ReplayEngine({ clock, explanations: new Map([[explanationKey(a), "CACHED"]]) });
+  engine.start();
+  await clock.advance(b.second * 1000 + 100);
+  const decisions = engine.history().filter((e) => e.type === "agent_decision");
+  assert.equal(decisions[0].explanation, "CACHED");
+  assert.equal(decisions[1].explanation, fallbackExplanation(b));
+  engine.stop();
+});

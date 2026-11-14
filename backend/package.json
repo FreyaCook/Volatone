@@ -10,7 +10,8 @@
     "make-storm": "tsx scripts/make-storm.ts",
     "typecheck": "tsc --noEmit",
     "send-test-batch": "tsx scripts/send-test-batch.ts",
-    "watch": "tsx scripts/watch.ts"
+    "watch": "tsx scripts/watch.ts",
+    "make-explanations": "tsx scripts/make-explanations.ts"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",
