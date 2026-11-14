@@ -282,3 +282,105 @@ test("the engine uses a cached explanation when present, the fallback otherwise"
   assert.equal(decisions[1].explanation, fallbackExplanation(b));
   engine.stop();
 });
+
+// ---------- Speed ----------
+
+/** A full run at `speed`, answering every prompt 2 replay seconds in. Returns all events. */
+async function fullRunAt(speed: 1 | 2 | 3) {
+  const clock = new FakeClock();
+  const sender = fakeSender(clock);
+  const engine = new ReplayEngine({ clock, tickMs: 1000, sender });
+  const events: VolatoneEvent[] = [];
+  engine.subscribe((e) => events.push(e));
+  const period = 1000 / speed;
+  const toSecond = (s: number) => clock.advance(s * period + period / 10 - clock.now());
+  engine.start(speed);
+  assert.equal(engine.speed, speed);
+  for (const dp of storm.data.decisionPoints) {
+    await toSecond(dp.second + 2);
+    assert.ok(engine.playerMove(dp.corridor, "hedge").ok, `${dp.id} at speed ${speed}`);
+  }
+  await toSecond(REPLAY_LAST_SECOND);
+  const finishedAt = clock.now();
+  assert.equal(engine.state, "finished");
+  await clock.advance(5000);
+  await engine.settled();
+  engine.stop();
+  return { events, sender, finishedAt };
+}
+
+test("speed 3: same events, same order, same replay times and the same 4 decision points as speed 1", async () => {
+  const one = await fullRunAt(1);
+  const three = await fullRunAt(3);
+  // Everything except tx results (batching runs on wall-clock time, so batches differ). Tx results
+  // also take ids, so ids differ: compare each outcome's move by its position instead of its id.
+  const strip = (evs: VolatoneEvent[]) => {
+    const moveIds = ofType(evs, "player_move").map((m) => m.id);
+    return evs
+      .filter((e) => e.type !== "tx_confirmed" && e.type !== "tx_failed")
+      .map(({ id: _id, ...rest }) =>
+        rest.type === "player_outcome" ? { ...rest, moveId: `move #${moveIds.indexOf(rest.moveId)}` } : rest);
+  };
+  assert.deepEqual(strip(three.events), strip(one.events));
+  for (const run of [one, three]) {
+    const moves = ofType(run.events, "player_move");
+    assert.deepEqual(moves.map((m) => [m.corridor, m.t]), storm.data.decisionPoints.map((dp) => [dp.corridor, (dp.second + 2) * 1000 + 100]));
+    assert.equal(ofType(run.events, "player_outcome").length, 4);
+    // Every loggable event is still logged exactly once.
+    const logged = run.sender.batches.flat().map((e) => e.id);
+    assert.deepEqual([...logged].sort(), run.events.filter((e) => LOGGABLE.has(e.type)).map((e) => e.id).sort());
+  }
+  // A third of the wall-clock time.
+  assert.ok(Math.abs(three.finishedAt - one.finishedAt / 3) < 100, `${three.finishedAt} vs ${one.finishedAt}`);
+});
+
+test("speed: reset keeps the current speed unless given; the reset event carries it; invalid speeds are ignored", async () => {
+  const clock = new FakeClock();
+  const engine = new ReplayEngine({ clock, tickMs: 1000 });
+  engine.start(7 as never);
+  assert.equal(engine.state, "idle", "invalid speed: start ignored");
+  engine.start(2);
+  assert.equal(engine.speed, 2);
+  await clock.advance(5000); // 10 replay seconds at speed 2
+  assert.equal(engine.history().at(-1)!.t, 10_000);
+
+  engine.reset();
+  assert.deepEqual(engine.history()[0], { ...engine.history()[0], type: "reset", t: 0, speed: 2 });
+  engine.reset(3);
+  assert.equal(engine.speed, 3);
+  assert.equal((engine.history()[0] as { speed?: number }).speed, 3);
+  const before = engine.history()[0].id;
+  engine.reset(0 as never);
+  assert.equal(engine.history()[0].id, before, "invalid speed: reset ignored");
+  assert.equal(engine.speed, 3);
+  engine.stop();
+
+  for (const bad of ['{"type":"start","speed":4}', '{"type":"start","speed":"2"}', '{"type":"reset","speed":1.5}', '{"type":"reset","speed":null}']) {
+    assert.equal(parseClientMessage(bad), null, bad);
+  }
+  assert.deepEqual(parseClientMessage('{"type":"start","speed":3}'), { type: "start", speed: 3 });
+  assert.deepEqual(parseClientMessage('{"type":"reset","speed":2}'), { type: "reset", speed: 2 });
+});
+
+test("speed over WebSocket: an invalid speed message changes nothing", async () => {
+  const clock = new FakeClock();
+  const engine = new ReplayEngine({ clock });
+  const wss = new WebSocketServer({ port: 0 });
+  await new Promise<void>((r) => wss.on("listening", () => r()));
+  attachServer(wss, engine);
+  const ws = new WebSocket(`ws://localhost:${(wss.address() as { port: number }).port}`);
+  await new Promise<void>((r) => ws.on("open", () => r()));
+  const flush = () => new Promise((r) => setTimeout(r, 50));
+  ws.send(JSON.stringify({ type: "start", speed: 5 }));
+  await flush();
+  assert.equal(engine.state, "idle");
+  ws.send(JSON.stringify({ type: "start", speed: 3 }));
+  await flush();
+  assert.equal(engine.speed, 3);
+  ws.send(JSON.stringify({ type: "reset", speed: 9 }));
+  await flush();
+  assert.ok(!engine.history().some((e) => e.type === "reset"));
+  ws.close();
+  engine.stop();
+  await new Promise((r) => wss.close(r));
+});

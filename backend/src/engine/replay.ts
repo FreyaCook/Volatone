@@ -3,6 +3,11 @@
 //  States: idle -> running -> finished. start() begins a run; reset() (or start() when finished)
 //  emits "reset" and restarts from t = 0. Event ids never restart.
 //
+//  Speed (1, 2 or 3): one replay second every tickMs / speed real ms. Everything in the storm
+//  (prompt windows, look-ahead, event t) is in replay seconds and does not change with speed.
+//  Batching (3 s wait, 250 ms timer) stays in real time. start(speed) defaults to 1;
+//  reset(speed) keeps the current speed when none is given. The reset event carries the speed.
+//
 //  Each replay second s (0..last), in this order:
 //    1. one tick per corridor (corridor order)
 //    2. any escalations at s
@@ -35,6 +40,8 @@ import { createIdSource, type IdSource } from "../ids";
 import { loadStorm } from "../storm/committed";
 import { judge, LOOKAHEAD_SECONDS, PROMPT_SECONDS, type Judgement } from "../storm/outcome";
 import { CORRIDORS, type AnalysedStorm, type DecisionPoint, type Escalation } from "../storm/storm";
+import type { Speed } from "@volatone/shared/protocol";
+import { SPEEDS } from "@volatone/shared/protocol";
 import { realClock, type Clock, type TimerHandle } from "./clock";
 
 export type ReplayState = "idle" | "running" | "finished";
@@ -46,7 +53,7 @@ export const FLUSH_CHECK_MS = 250;
 export interface EngineOptions {
   storm?: AnalysedStorm;
   clock?: Clock;
-  /** Real ms per replay second (default 1000). */
+  /** Real ms per replay second at speed 1 (default 1000). */
   tickMs?: number;
   /** null = CHAIN=off: no batching, no tx events. */
   sender?: Sender | null;
@@ -77,6 +84,7 @@ export class ReplayEngine {
   private readonly plan: PlannedDecision[];
 
   private _state: ReplayState = "idle";
+  private _speed: Speed = 1;
   private second = -1;          // last replay second emitted in this run
   private lastTickAt = 0;       // clock time of that second
   private runHistory: VolatoneEvent[] = [];
@@ -105,6 +113,15 @@ export class ReplayEngine {
     return this._state;
   }
 
+  get speed(): Speed {
+    return this._speed;
+  }
+
+  /** Real ms per replay second at the current speed. */
+  private get periodMs(): number {
+    return this.tickMs / this._speed;
+  }
+
   /** Every event since the current run began (what a late joiner is sent). */
   history(): readonly VolatoneEvent[] {
     return this.runHistory;
@@ -123,17 +140,22 @@ export class ReplayEngine {
   /** Replay ms in the current run: the current second plus time since it ticked (capped at one second while running). */
   replayT(): number {
     if (this.second < 0) return 0;
-    const since = ((this.clock.now() - this.lastTickAt) * 1000) / this.tickMs;
+    const since = ((this.clock.now() - this.lastTickAt) * 1000) / this.periodMs;
     return Math.round(this.second * 1000 + (this._state === "running" ? Math.min(999, since) : since));
   }
 
-  start(): void {
+  /** Begin a run at `speed` (default 1). Ignored while running or with an invalid speed. */
+  start(speed: Speed = 1): void {
+    if (!SPEEDS.includes(speed)) return this.log(`start ignored: invalid speed ${String(speed)}`);
     if (this._state === "running") return this.log("start ignored: already running");
-    if (this._state === "finished") return this.reset();
-    this.beginRun(false);
+    this._speed = speed;
+    this.beginRun(this._state === "finished");
   }
 
-  reset(): void {
+  /** Reset storm. Keeps the current speed unless a valid one is given; an invalid speed is ignored. */
+  reset(speed?: Speed): void {
+    if (speed !== undefined && !SPEEDS.includes(speed)) return this.log(`reset ignored: invalid speed ${String(speed)}`);
+    if (speed !== undefined) this._speed = speed;
     this.beginRun(true);
   }
 
@@ -180,11 +202,11 @@ export class ReplayEngine {
     this.second = -1;
     if (withReset) {
       this.sendBatches(this.batcher.flushAll()); // every announced event is still logged
-      this.emit({ id: this.ids.next(), t: 0, type: "reset" });
+      this.emit({ id: this.ids.next(), t: 0, type: "reset", speed: this._speed });
     }
     this._state = "running";
     this.playSecond(0);
-    this.tickTimer = this.clock.setInterval(() => this.playSecond(this.second + 1), this.tickMs);
+    this.tickTimer = this.clock.setInterval(() => this.playSecond(this.second + 1), this.periodMs);
   }
 
   private playSecond(s: number): void {

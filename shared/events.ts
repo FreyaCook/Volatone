@@ -58,6 +58,7 @@ export interface EscalationEvent extends BaseEvent {
 /** "Reset storm" was pressed. Map, music and feed clear; next run's t starts at 0. */
 export interface ResetEvent extends BaseEvent {
   type: "reset";
+  speed?: 1 | 2 | 3; // run speed of the new run (replay seconds per real second). Optional: older code may omit it
 }
 
 /** A batched devnet transaction confirmed. Links back to the events it logged. */

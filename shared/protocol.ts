@@ -6,16 +6,26 @@
 //    (starting with its "reset" event, if the run began with one), then live events.
 //  - Client -> server: one ClientMessage as JSON (below). Invalid or ill-timed messages are ignored.
 //
+// Speed only changes how fast replay seconds pass in real time. All `t` values, prompt windows and
+// the 15 s look-ahead are in replay time, so they are identical at every speed. Any other speed
+// value makes the whole message invalid (ignored).
+//
 // There is no "prompt" event: a client knows a prompt is open from the tick times. A prompt for
 // DECISION_POINTS[i] opens with the first tick at t = second * 1000 and accepts one player_move
 // until the tick at t = (second + PROMPT_SECONDS) * 1000. No player_move in that window = "missed".
 
-import type { Action, Corridor } from "./events";
+import type { Action, Corridor, ResetEvent } from "./events";
+
+/** Run speed: 1 = Normal, 2 = Fast, 3 = Rush. Replay seconds per real second. */
+export type Speed = NonNullable<ResetEvent["speed"]>;
+export const SPEEDS: readonly Speed[] = [1, 2, 3];
 
 export type ClientMessage =
-  | { type: "start" }        // idle: begin the replay. Running: ignored. Finished: same as reset.
+  // idle: begin the replay at `speed` (default 1). Running: ignored. Finished: same as reset with `speed` (default 1).
+  | { type: "start"; speed?: Speed }
   | { type: "player_move"; corridor: Corridor; action: Action } // answers the open prompt
-  | { type: "reset" };       // "Reset storm": emits reset, restarts from t = 0
+  // "Reset storm": emits reset, restarts from t = 0. Keeps the current speed unless one is given.
+  | { type: "reset"; speed?: Speed };
 
 export type ClientMessageType = ClientMessage["type"];
 

@@ -4,7 +4,7 @@
 
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Action, Corridor } from "@volatone/shared";
-import type { ClientMessage } from "@volatone/shared/protocol";
+import { SPEEDS, type ClientMessage, type Speed } from "@volatone/shared/protocol";
 import { CORRIDORS } from "../storm/storm";
 import type { ReplayEngine } from "./replay";
 
@@ -22,8 +22,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   const o = m as Record<string, unknown>;
   switch (o.type) {
     case "start":
-    case "reset":
-      return { type: o.type };
+    case "reset": {
+      if (o.speed === undefined) return { type: o.type };
+      if (!SPEEDS.includes(o.speed as Speed)) return null; // any other speed: the message is invalid
+      return { type: o.type, speed: o.speed as Speed };
+    }
     case "player_move":
       if (!CORRIDORS.includes(o.corridor as Corridor) || !ACTIONS.includes(o.action as Action)) return null;
       return { type: "player_move", corridor: o.corridor as Corridor, action: o.action as Action };
@@ -50,8 +53,8 @@ export function attachServer(
     ws.on("message", (data) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return log(`ignored invalid client message: ${data.toString().slice(0, 100)}`);
-      if (msg.type === "start") engine.start();
-      else if (msg.type === "reset") engine.reset();
+      if (msg.type === "start") engine.start(msg.speed);
+      else if (msg.type === "reset") engine.reset(msg.speed);
       else engine.playerMove(msg.corridor, msg.action);
     });
   });

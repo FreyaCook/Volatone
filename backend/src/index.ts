@@ -35,7 +35,7 @@ attachServer(wss, engine, log);
 
 engine.subscribe((e) => {
   if (e.type === "tx_failed") log(`tx failed (${e.eventIds.length} events): ${e.error}`);
-  if (e.type === "reset") log("reset");
+  if (e.type === "reset") log(`reset (speed ${e.speed ?? 1})`);
 });
 
 wss.on("listening", () => {

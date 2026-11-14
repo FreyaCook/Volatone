@@ -30,9 +30,12 @@ FINAL. Source of truth: `shared/events.ts` (discriminated union on `type`). Don'
 Source of truth: `shared/events.ts` (server -> client) and `shared/protocol.ts` (client -> server, plus the prompt schedule). The frontend imports only from `@volatone/shared` and `@volatone/shared/protocol`.
 - URL: `ws://localhost:8080` locally (`PORT` env var on the backend).
 - Server -> client: every message is one `VolatoneEvent` as JSON. Nothing else is ever sent (no acks, no errors, no prompt messages).
-- Client -> server: `{"type":"start"}`, `{"type":"player_move","corridor":"USD-JPY","action":"hedge"}`, `{"type":"reset"}`.
-  - `start`: idle -> begin. Running -> ignored. Finished -> same as `reset`.
-  - `reset`: waiting events are still sent to devnet, then a `reset` event (t = 0) and the run restarts at t = 0. Event ids never restart.
+- Client -> server: `{"type":"start","speed"?:1|2|3}`, `{"type":"player_move","corridor":"USD-JPY","action":"hedge"}`, `{"type":"reset","speed"?:1|2|3}`.
+  - `start`: idle -> begin at `speed` (default 1). Running -> ignored (speed unchanged). Finished -> same as `reset` at `speed` (default 1).
+  - `reset`: waiting events are still sent to devnet, then a `reset` event (t = 0, with `speed`) and the run restarts at t = 0. Keeps the current speed unless a new one is given. Event ids never restart.
+- Speed: 1, 2 or 3 replay seconds per real second (any other value = invalid message, ignored). Only real-time pacing changes: every `t`, the 8 s prompt window and the 15 s look-ahead are in replay seconds, so they are identical at every speed. At speed 3 a prompt is open for about 2.7 real seconds. Devnet batching stays in real time (3 s wait), so at higher speeds more events share a transaction.
+  - The `reset` event carries `speed` (optional field on `ResetEvent`). The very first run after the backend starts has no reset event, so a late joiner to that run can't read its speed from the feed; assume 1 unless this client started it.
+  - Frontend should offer three speeds: **Normal** (1), **Fast** (2) and **Rush** (3). In Rush, prompts pass too quickly to answer comfortably, so the frontend runs a client-side autopilot that sends a move at each prompt, clearly labelled as autopilot in the UI (the moves are still real logged player moves). The backend has no autopilot.
 - Bad messages are ignored silently: invalid JSON or shape, a move with no prompt open, the wrong corridor, a second move on the same prompt, or a move after the prompt closed. The UI should only enable the buttons while a prompt is open and unanswered, and treat the echoed `player_move` event as the confirmation.
 - Late joiners / browser refresh: on connect the server first sends every event since the current run began (starting with its `reset` event, if the run began with one), then live events. Rebuild state by replaying them in order. tx_confirmed/tx_failed for the previous run can arrive after a reset; match them by `eventIds`.
 - Order within one replay second: 4 `tick`s (corridor order), then `escalation`s, then `agent_decision`s, then any `player_outcome` due. Replay runs seconds 0..150 (`REPLAY_LAST_SECOND`), then finishes.
@@ -46,7 +49,7 @@ From the repo root:
 - Backend without Solana (local dev): `CHAIN=off npm run dev -w backend`
 - Backend with real devnet logging: `npm run dev -w backend` (wallet at `.keys/volatone-wallet.json`, settings in `.env`)
 - Faster replay for testing: put `TICK_MS=250` in front (ms per replay second, default 1000).
-- Watch a run in a terminal: `npm run watch -w backend` (options after `--`: `--autoplay`, `--reset`, `--no-ticks`, `--url ws://host:port`).
+- Watch a run in a terminal: `npm run watch -w backend` (options after `--`: `--autoplay`, `--reset`, `--speed 1|2|3`, `--no-ticks`, `--url ws://host:port`).
 - Regenerate Gemini explanations (one API request, needs `GEMINI_API_KEY` in `.env`): `npm run make-explanations -w backend`. Writes `backend/src/agents/explanations.json`; any explanation failing validation (one sentence, under 160 chars, no advice words like buy/sell/should/guaranteed, starts with the agent name, names the corridor) uses the plain-English fallback instead. `-- --dry-run` prints the prompt without calling the API; `-- --list-models` shows the eligible models (stable Flash-Lite text models first, then stable Flash) and which would be chosen; `-- --model <name>` forces one. On an HTTP 400 it tries the next eligible model, at most 3 requests in total.
 
 ## Cut list (cut in this order if behind)
