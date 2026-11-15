@@ -58,3 +58,14 @@ describe("parseServerMessage", () => {
     expect(parseServerMessage('{"nope":1}')).toBeNull();
   });
 });
+
+import { statusLine } from "./components/AfterAction";
+describe("report status line", () => {
+  it("says where the report came from, or why there is none", () => {
+    expect(statusLine({ type: "report", status: "ok", queryMs: 14 }, false)).toBe("Read back from Tiger Data in 14 ms.");
+    expect(statusLine({ type: "report", status: "unavailable" }, false)).toBe("Tiger Data unavailable. Replay and Solana log are unaffected.");
+    expect(statusLine({ type: "report", status: "off" }, false)).toBe("Tiger Data switched off.");
+    expect(statusLine(null, false)).toContain("Reading the report");
+    expect(statusLine({ type: "report", status: "ok" }, true)).toBe("MOCK: not from Tiger Data.");
+  });
+});
