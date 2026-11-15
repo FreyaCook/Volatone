@@ -4,7 +4,7 @@ import { pct, tplus } from "../format";
 
 const INK = { reduce: "#b8290f", hedge: "#8a5a00", hold: "#13294b", good: "#1f5f3a", poor: "#b8290f" } as const;
 const ROT = ["rotate(-0.8deg)", "rotate(0.6deg)", "rotate(-0.4deg)"];
-const SHOWN = 8;
+const SHOWN = 80; // the list scrolls inside its panel
 
 function Slip({ item, i, auto }: { item: FeedItem; i: number; auto: boolean }) {
   let who: string, head: string, quote: string, stamp: string, ink: string;
@@ -39,7 +39,7 @@ function Slip({ item, i, auto }: { item: FeedItem; i: number; auto: boolean }) {
 export function Dispatches({ state, autoPrompts }: { state: State; autoPrompts: Record<string, true> }) {
   const autoMoveIds = new Set(promptViews(state).filter((p) => p.move && autoPrompts[p.id]).map((p) => p.move!.id));
   return (
-    <section aria-label="Agent dispatches">
+    <section className="dispatches" aria-label="Agent dispatches">
       <div className="panel-head"><h2>DISPATCHES</h2><span>from the three agents</span></div>
       {state.feed.length === 0 ? (
         <p className="slip slip-empty">No dispatches yet. {state.status === "idle" ? "Press START to begin the storm." : "All four corridors are calm."}</p>

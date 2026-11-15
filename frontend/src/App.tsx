@@ -153,8 +153,10 @@ export default function App() {
           <Barograph state={state} />
         </div>
         <div className="side-col">
-          <Dispatches state={state} autoPrompts={autoPrompts} />
-          <Teleprinter state={state} mock={MOCK} />
+          <div className="side-inner">
+            <Dispatches state={state} autoPrompts={autoPrompts} />
+            <Teleprinter state={state} mock={MOCK} />
+          </div>
         </div>
       </div>
 
