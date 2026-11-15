@@ -88,11 +88,15 @@ describe("past runs", () => {
   });
 });
 
-import { playTokensLine } from "./components/AfterAction";
-describe("play tokens line", () => {
-  it("says 'play tokens', says they have no value, and never calls them money", () => {
+import { HONESTY_LINE, HONESTY_LINE_WITH_TOKENS, playTokensLine } from "./components/AfterAction";
+describe("play tokens wording", () => {
+  it("the token line says 'play tokens' and never calls them money, a coin, a swap or a reward", () => {
     const line = playTokensLine({ minted: 300, symbol: "VPLAY", mint: "M", signature: "S", confirmMs: 1100 });
-    expect(line).toBe("300 play tokens (VPLAY) minted on Solana devnet, 100 for each good call, confirmed in 1100 ms. Play tokens have no value.");
+    expect(line).toBe("300 play tokens (VPLAY) minted, confirmed in 1100 ms.");
     for (const bad of [/money/i, /coin/i, /reward/i, /swap/i, /earn/i]) expect(line).not.toMatch(bad);
+  });
+  it("keeps the honesty lines: devnet and fake money always, 'no value' when tokens are shown", () => {
+    expect(HONESTY_LINE).toBe("Fake money, devnet only.");
+    expect(HONESTY_LINE_WITH_TOKENS).toBe("Play tokens have no value. Fake money, devnet only.");
   });
 });
