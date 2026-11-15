@@ -52,6 +52,15 @@ export interface ReportMove {
   views: { agent: AgentName; action: Action; risk: number }[];
 }
 
+/** Play tokens minted on devnet for a completed run (100 VPLAY per good call). They have no value. */
+export interface PlayTokens {
+  minted: number;
+  symbol: "VPLAY";
+  mint: string;
+  signature: string;
+  confirmMs: number;
+}
+
 export interface ReportMessage {
   type: "report";
   status: ReportStatus;
@@ -64,6 +73,8 @@ export interface ReportMessage {
   agentViews?: number;
   moves?: ReportMove[];
   solana?: { count: number; minMs: number | null; meanMs: number | null; maxMs: number | null; failures: number };
+  /** Only present if play tokens were minted for this run (VPLAY_MINT set and at least one good call). */
+  playTokens?: PlayTokens;
 }
 
 // ---- Past runs (additive) ----

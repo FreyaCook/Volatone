@@ -6,6 +6,8 @@
 //            Solana sender never wait for it (see src/tiger/).
 //   MONGODB  "off" = no MongoDB. Default: on only if MONGODB_URI is set. One document per completed run is
 //            written once, in the background, after the replay finishes (see src/mongo/).
+//   VPLAY_MINT  address of the devnet play-token mint (not a secret; make it with `npm run make-token -w backend`).
+//            If unset or invalid, or CHAIN=off, play tokens are silently off.
 //   ENV_FILE path of a .env to load instead of the repo's (values already in the environment win)
 // Solana settings (SOLANA_RPC_URL, WALLET_PATH, LOG_VIA) come from the environment or the repo's .env.
 
@@ -20,6 +22,9 @@ import { attachServer } from "./engine/server";
 import { createTiger, offReport } from "./tiger";
 import { createMongo, offRuns, RunCollector } from "./mongo";
 import type { RunDoc } from "./mongo/collector";
+import type { ReportMessage } from "@volatone/shared/protocol";
+import { createMinter } from "./token/minter";
+import { countGood } from "./token/mint";
 
 const envFile = process.env.ENV_FILE ? resolve(process.env.ENV_FILE) : resolve(REPO_ROOT, ".env");
 if (existsSync(envFile)) process.loadEnvFile(envFile);
@@ -41,15 +46,21 @@ const engine = new ReplayEngine({
 // Tiger Data: a background time-series store and the after-action report. Never on the replay's path.
 const tiger = createTiger(process.env, { scenario: engine.storm.data.name, seed: engine.storm.data.seed, speed: () => engine.speed }, log);
 if (tiger) engine.subscribe(tiger.onEvent);
-const getReport = async () => (tiger ? tiger.report() : offReport());
 
 // MongoDB: one document per completed run, written once after the replay finishes. Never on the replay's path.
 const mongo = createMongo(process.env, log);
+// Play tokens: 100 VPLAY per good call, minted once per run after the log batches (see src/token/).
+const minter = createMinter(process.env, log);
 const collector = new RunCollector({
   scenario: engine.storm.data.name, seed: engine.storm.data.seed, speed: () => engine.speed, lastSecond: engine.lastSecond,
   sharedRunId: () => tiger?.runId() ?? null, // the same run id as Tiger Data when both are on
 });
-if (mongo) engine.subscribe((e) => { try { collector.onEvent(e); } catch { /* never break the feed */ } });
+if (mongo || minter) engine.subscribe((e) => { try { collector.onEvent(e); } catch { /* never break the feed */ } });
+const getReport = async (): Promise<ReportMessage> => {
+  const report = tiger ? await tiger.report() : offReport();
+  const tokens = minter?.result(collector.runId);
+  return tokens ? { ...report, playTokens: tokens } : report;
+};
 const getRuns = async () => (mongo ? mongo.recentRuns() : offRuns());
 
 const wss = new WebSocketServer({ port });
@@ -66,8 +77,23 @@ let reportTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingDoc: RunDoc | null = null; // the finished run's record, kept in memory until it is written
 /** Write the finished run once, in the background, then send everyone the recent-runs list. */
 const saveRun = (doc: RunDoc) => {
-  if (!mongo) return pushRuns(); // tells clients "MongoDB switched off"
-  void mongo.saveRun(doc, pushRuns).then(pushRuns);
+  if (mongo) void mongo.saveRun(doc, pushRuns).then(pushRuns);
+  else pushRuns(); // tells clients "MongoDB switched off"
+  mintPlayTokens(doc);
+};
+/** After the log batches have landed, mint play tokens once for this run, in the background. */
+let lastReport: { runId: string | null; report: ReportMessage } | null = null;
+const mintPlayTokens = (doc: RunDoc) => {
+  if (!minter) return;
+  const good = countGood(doc.moves);
+  void engine.settled()
+    .then(() => minter.mintForRun(doc.runId, good))
+    .then((tokens) => {
+      if (!tokens) return;
+      log(`play tokens minted: ${tokens.minted} ${tokens.symbol} in ${tokens.confirmMs} ms`);
+      // Send the report again with the tokens on it (if that report is for this run).
+      if (lastReport && lastReport.runId === doc.runId) broadcast({ ...lastReport.report, playTokens: tokens });
+    });
 };
 engine.subscribe((e) => {
   if (e.type === "reset") {
@@ -77,11 +103,12 @@ engine.subscribe((e) => {
   }
   if (e.type === "tick" && e.t >= engine.lastSecond * 1000 && e.corridor === "GBP-USD") {
     clearTimeout(reportTimer);
-    if (mongo) pendingDoc = collector.build();
+    if (mongo || minter) pendingDoc = collector.build();
     reportTimer = setTimeout(() => {
       if (pendingDoc) { saveRun(collector.runId === pendingDoc.runId ? collector.build() : pendingDoc); pendingDoc = null; }
       else if (!mongo) pushRuns();
       void getReport().then((r) => {
+        lastReport = { runId: collector.runId, report: r };
         broadcast(r);
         log(`report sent (${r.status}${r.queryMs !== undefined ? `, ${r.queryMs} ms` : ""})${tiger ? ` tiger ${JSON.stringify(tiger.status())}` : ""}${mongo ? ` mongo saved=${mongo.saved} dropped=${mongo.dropped}` : ""}`);
       });
@@ -99,5 +126,6 @@ wss.on("listening", () => {
   log(chainOn ? "CHAIN on: logging to Solana devnet" : "CHAIN=off: no Solana sending, no tx events");
   log(explanations.source);
   log(tiger ? "TIGER on: writing the replay to Tiger Data in the background" : "TIGER off: no Tiger Data");
+  if (minter) log("VPLAY on: play tokens are minted on devnet for good calls");
   log(mongo ? "MONGODB on: one record per completed run, written in the background" : "MONGODB off: no MongoDB");
 });

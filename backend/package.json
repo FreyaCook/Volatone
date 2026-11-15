@@ -14,9 +14,11 @@
     "make-explanations": "tsx scripts/make-explanations.ts",
     "make-narration": "tsx scripts/make-narration.ts",
     "tiger-check": "tsx scripts/tiger-check.ts",
-    "mongo-check": "tsx scripts/mongo-check.ts"
+    "mongo-check": "tsx scripts/mongo-check.ts",
+    "make-token": "tsx scripts/make-token.ts"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "1.98.4",
     "@volatone/shared": "*",
     "mongodb": "^7.9.0",
