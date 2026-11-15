@@ -1,0 +1,47 @@
+[
+  {
+    "id": "intro",
+    "text": "Welcome to Volatone. A practice storm for new currency traders. Simulation only, fake money. Hear the storm before it breaks.",
+    "file": "intro.mp3"
+  },
+  {
+    "id": "start",
+    "text": "The replay begins. Four currency corridors, all calm.",
+    "file": "start.mp3"
+  },
+  {
+    "id": "spreading",
+    "text": "Stress is spreading. Watch the front.",
+    "file": "spreading.mp3"
+  },
+  {
+    "id": "storm",
+    "text": "Storm. This corridor has crossed the line.",
+    "file": "storm.mp3"
+  },
+  {
+    "id": "prompt",
+    "text": "Your move. Hedge, hold, or reduce.",
+    "file": "prompt.mp3"
+  },
+  {
+    "id": "good",
+    "text": "Good call. Your move is logged on Solana devnet.",
+    "file": "good.mp3"
+  },
+  {
+    "id": "poor",
+    "text": "Not this time. Every move is a lesson, and it's logged.",
+    "file": "poor.mp3"
+  },
+  {
+    "id": "easing",
+    "text": "The storm is passing.",
+    "file": "easing.mp3"
+  },
+  {
+    "id": "end",
+    "text": "Replay complete. Every decision is recorded on Solana devnet. A simulation, not financial advice.",
+    "file": "end.mp3"
+  }
+]
