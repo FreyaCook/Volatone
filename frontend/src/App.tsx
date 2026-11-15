@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Action } from "@volatone/shared";
 import type { Speed } from "./clientMessage";
 import { announce } from "./announce";
+import { clipsForChange, freshFlags, introFor, type ClipId } from "./narration";
+import { Narrator } from "./narrator";
 import { Sound, tensionFor } from "./sound";
 import { autopilotAction, openPrompt, stormCount } from "./state";
 import { MOCK, useFeed } from "./useFeed";
@@ -21,6 +23,9 @@ const SPEED_ENABLED = MOCK || PROTOCOL_HAS_SPEED;
 const AUTOPILOT_DELAY_MS = 2500;
 
 const sound = new Sound();
+const narrator = new Narrator();
+// Lines the aria-live region would not otherwise say (decisions, state changes, prompts and outcomes are already announced).
+const SPOKEN_ONLY: ClipId[] = ["intro", "start", "easing", "end"];
 
 export default function App() {
   const { state, conn, send } = useFeed();
@@ -34,7 +39,16 @@ export default function App() {
   stateRef.current = state;
   const speedField = SPEED_ENABLED ? { speed } : {};
 
-  const start = useCallback(() => send({ type: "start", ...speedField }), [send, speed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const introPlayed = useRef(false);
+  const flags = useRef(freshFlags());
+  const [caption, setCaption] = useState<{ id: ClipId; text: string } | null>(null);
+
+  const start = useCallback(() => {
+    // First START in this page session: intro, then "start" (the click also unlocks audio).
+    if (introFor(introPlayed.current, speed)) narrator.play("intro", "start");
+    introPlayed.current = true;
+    send({ type: "start", ...speedField });
+  }, [send, speed]); // eslint-disable-line react-hooks/exhaustive-deps
   const reset = () => { setAutoPrompts({}); send({ type: "reset", ...speedField }); };
   const move = useCallback((action: Action) => {
     const p = openPrompt(stateRef.current);
@@ -49,7 +63,14 @@ export default function App() {
     return () => { window.removeEventListener("pointerdown", go); window.removeEventListener("keydown", go); };
   }, []);
   useEffect(() => sound.setTension(tensionFor(stormCount(state))), [state]);
-  useEffect(() => sound.setMuted(muted), [muted]);
+  useEffect(() => { sound.setMuted(muted); narrator.setMuted(muted); }, [muted]);
+  useEffect(() => {
+    narrator.onCaption = (c) => {
+      setCaption(c);
+      if (c && SPOKEN_ONLY.includes(c.id)) setLive((l) => [...l, c.text].slice(-4));
+    };
+    void narrator.load();
+  }, []);
 
   // aria-live announcements and sound cues, from what changed in the state.
   useStateChanges(state, conn, (prev, next) => {
@@ -58,6 +79,9 @@ export default function App() {
     if (next.decisions.length > prev.decisions.length) sound.cue("decision");
     if (openPrompt(next)?.id !== openPrompt(prev)?.id && openPrompt(next)) sound.cue("prompt");
     for (const [id, o] of Object.entries(next.outcomes)) if (!prev.outcomes[id]) sound.cue(o.result);
+    const n = clipsForChange(prev, next, flags.current, speed);
+    flags.current = n.flags;
+    n.clips.forEach((c) => narrator.play(c));
   });
 
   // Keyboard: 1, 2, 3 answer an open prompt; Space starts (the protocol has no pause).
@@ -114,12 +138,14 @@ export default function App() {
         </div>
       </header>
       <p className="intro">
-        A practice simulation for new currency traders, designed to help you notice risk building. Agent decisions are computed by code; Gemini only wrote the cached explanations. Fake money on Solana devnet.
+        A practice simulation for new currency traders, designed to help you notice risk building. Agent decisions are computed by code; Gemini only wrote the cached explanations. Fake money on Solana devnet. Narration is pre-generated with ElevenLabs, not a live AI voice.
       </p>
 
       {conn !== "open" && !MOCK && (
         <p className="banner" role="status">Can't reach the replay server yet. Trying again every few seconds. Start the backend, or add <code>?mock=1</code> to the address to play a local demo.</p>
       )}
+
+      {caption && <p className="caption" aria-hidden="true"><span>NARRATION</span> {caption.text}</p>}
 
       <div className="upper">
         <div className="chart-col">
