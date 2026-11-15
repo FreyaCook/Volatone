@@ -185,3 +185,11 @@ ul { list-style: none; }
 .bar { height: 10px; background: rgba(26, 26, 24, .15); border: 1px solid var(--ink); }
 .bar i { display: block; height: 100%; background: #b8290f; }
 .after-status { margin-top: 12px; color: var(--muted); }
+
+/* Past runs: paper rows under the report */
+.past { margin-top: 26px; }
+.past-list { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; }
+.past-list li { display: grid; grid-template-columns: 1.4fr .8fr 1fr .8fr 1.6fr; gap: 6px 12px; font: 14px/1.4 var(--type); border-bottom: 1px dotted var(--ink); padding-bottom: 6px; }
+.past-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.past-empty { font: 14px/1.45 var(--type); }
+@media (max-width: 760px) { .past-list li { grid-template-columns: 1fr 1fr; } }

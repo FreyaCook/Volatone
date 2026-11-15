@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { VolatoneEvent } from "@volatone/shared";
-import type { ReportMessage } from "@volatone/shared/protocol";
+import type { ReportMessage, RunsMessage } from "@volatone/shared/protocol";
+import { MOCK_RUNS } from "./pastRuns";
 import { initialState, reduce } from "./state";
 import { reportFromState } from "./report";
 import { connectWs, type ConnStatus, type Transport } from "./transport";
@@ -14,6 +15,7 @@ const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080";
 export function useFeed() {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const [conn, setConn] = useState<ConnStatus>("connecting");
+  const [serverRuns, setServerRuns] = useState<RunsMessage | null>(null);
   const [serverReport, setServerReport] = useState<ReportMessage | null>(null);
   const transport = useRef<Transport>();
 
@@ -22,6 +24,7 @@ export function useFeed() {
       onEvent: (event: VolatoneEvent) =>
         dispatch({ kind: "event", event }),
       onReport: (r: ReportMessage) => setServerReport(r),
+      onRuns: (r: RunsMessage) => setServerRuns(r),
       onStatus: (s: ConnStatus) => {
         setConn(s);
         if (s === "open") dispatch({ kind: "clear" }); // history is replayed from the start
@@ -48,7 +51,13 @@ export function useFeed() {
     return () => clearTimeout(timer);
   }, [finished, serverReport, conn, send]);
 
+  // Past runs: ask once when we connect (the server also pushes the list after each replay finishes).
+  useEffect(() => {
+    if (!MOCK && conn === "open") send({ type: "get_runs" });
+  }, [conn, send]);
+
   // Mock mode builds a local report (labelled as such); otherwise it comes from the server (Tiger Data).
   const report = finished ? (MOCK ? reportFromState(state) : serverReport) : null;
-  return { state, conn, send, report };
+  const runs: RunsMessage | null = MOCK ? MOCK_RUNS : serverRuns;
+  return { state, conn, send, report, runs };
 }

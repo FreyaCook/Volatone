@@ -138,6 +138,22 @@ describe("MongoStore: unavailable, retry once, breaker, no secrets", () => {
     for (const l of logs) for (const bad of ["s3cretpw", "appuser", "abcde", "mongodb.net"]) assert.ok(!l.includes(bad), `leaked ${bad}: ${l}`);
   });
 
+  it("calls onFailure after a failed write so a broken client can be replaced", async () => {
+    const { col } = failing();
+    let resets = 0;
+    const s = new MongoStore(async () => col, () => {}, [], 10_000, () => resets++);
+    await s.saveRun(doc);
+    assert.equal(resets, 1);
+    await s.recentRuns();
+    assert.equal(resets, 2);
+  });
+
+  it("a connection that never completes is cut off by the timeout, not waited on forever", async () => {
+    // getCollection that rejects slowly would hold a write; here it rejects at once to keep the test fast
+    const s = new MongoStore(async () => { throw new Error("Server selection timed out"); }, () => {}, [], 10_000);
+    assert.equal(await s.saveRun(doc), false);
+  });
+
   it("a success on the retry is saved, not dropped", async () => {
     let n = 0;
     const col: RunsCollection = {

@@ -69,3 +69,21 @@ describe("report status line", () => {
     expect(statusLine({ type: "report", status: "ok" }, true)).toBe("MOCK: not from Tiger Data.");
   });
 });
+
+import { goodCallsText, MOCK_RUNS, pastRunsStatus } from "./pastRuns";
+describe("past runs", () => {
+  it("tells runs messages from events and reports", () => {
+    expect(parseServerMessage('{"type":"runs","status":"off"}')).toEqual({ runs: { type: "runs", status: "off" } });
+  });
+  it("status line says where the list came from, or why there is none", () => {
+    expect(pastRunsStatus({ type: "runs", status: "ok", runs: [] }, false)).toBe("Run records stored in MongoDB Atlas.");
+    expect(pastRunsStatus({ type: "runs", status: "unavailable" }, false)).toBe("MongoDB unavailable. The replay is unaffected.");
+    expect(pastRunsStatus({ type: "runs", status: "off" }, false)).toBe("MongoDB switched off.");
+    expect(pastRunsStatus(null, false)).toContain("Checking MongoDB");
+    expect(pastRunsStatus(MOCK_RUNS, true)).toContain("MOCK: not from MongoDB");
+  });
+  it("good calls reads 'X of Y', and the mock rows are clearly fake", () => {
+    expect(goodCallsText(3, 4)).toBe("good calls: 3 of 4");
+    expect(MOCK_RUNS.runs?.every((r) => r.runId.startsWith("mock-") && r.finishedAt.startsWith("2026-01-01"))).toBe(true);
+  });
+});

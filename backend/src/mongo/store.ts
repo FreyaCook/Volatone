@@ -58,6 +58,8 @@ export class MongoStore {
     log: (m: string) => void,
     private readonly secrets: string[] = [],
     private readonly retryMs = 5000,
+    /** called after any failed operation, so the caller can replace a broken client */
+    private readonly onFailure?: () => void,
   ) {
     this.note = logOnce(log);
   }
@@ -79,7 +81,7 @@ export class MongoStore {
   private async tryWrite(doc: RunDoc): Promise<boolean> {
     if (!this.breaker.canTry(Date.now())) return false;
     try {
-      const c = await this.getCollection();
+      const c = await withTimeout(this.getCollection(), OP_TIMEOUT_MS);
       await withTimeout(this.ensureIndex(c), OP_TIMEOUT_MS);
       await withTimeout(c.updateOne({ runId: doc.runId }, { $set: doc }, { upsert: true }), OP_TIMEOUT_MS);
       this.breaker.success();
@@ -88,6 +90,7 @@ export class MongoStore {
     } catch (e) {
       this.breaker.failure(Date.now());
       this.note(`mongo: write failed (${safeError(e, this.secrets)})`);
+      this.onFailure?.();
       return false;
     }
   }
@@ -101,13 +104,14 @@ export class MongoStore {
   async recentRuns(): Promise<RunsMessage> {
     if (!this.breaker.canTry(Date.now())) return unavailableRuns();
     try {
-      const c = await this.getCollection();
+      const c = await withTimeout(this.getCollection(), OP_TIMEOUT_MS);
       const docs = await withTimeout(c.find({}, { projection: RECENT_PROJECTION }).sort({ finishedAt: -1 }).limit(RECENT_LIMIT).toArray(), OP_TIMEOUT_MS);
       this.breaker.success();
       return { type: "runs", status: "ok", runs: (docs as Parameters<typeof summarise>[0][]).map(summarise) };
     } catch (e) {
       this.breaker.failure(Date.now());
       this.note(`mongo: read failed (${safeError(e, this.secrets)})`);
+      this.onFailure?.();
       return unavailableRuns();
     }
   }

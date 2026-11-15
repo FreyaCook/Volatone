@@ -5,10 +5,24 @@ import { MongoStore, offRuns, type RunsCollection } from "./store";
 export function createMongo(env: NodeJS.ProcessEnv, log: (m: string) => void): MongoStore | null {
   if (!mongoEnabled(env)) return null;
   const uri = env.MONGODB_URI!.trim();
-  const client = createClient(uri);
-  // The client connects lazily on first use; a failed attempt is retried by the driver on the next call.
-  const getCollection = async (): Promise<RunsCollection> => client.db("volatone").collection("runs") as unknown as RunsCollection;
-  return new MongoStore(getCollection, log, secretsOf(uri));
+  let client = createClient(uri);
+  let ready = false;
+  // Connect explicitly, so a failure shows its real cause. After any failure the client is replaced:
+  // a driver client whose first connection failed can stay closed ("Topology is closed") for good.
+  const getCollection = async (): Promise<RunsCollection> => {
+    if (!ready) {
+      await client.connect();
+      ready = true;
+    }
+    return client.db("volatone").collection("runs") as unknown as RunsCollection;
+  };
+  const resetClient = () => {
+    const old = client;
+    client = createClient(uri);
+    ready = false;
+    void old.close().catch(() => {});
+  };
+  return new MongoStore(getCollection, log, secretsOf(uri), 5000, resetClient);
 }
 
 export { offRuns };
