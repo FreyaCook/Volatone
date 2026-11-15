@@ -13,11 +13,13 @@
     "watch": "tsx scripts/watch.ts",
     "make-explanations": "tsx scripts/make-explanations.ts",
     "make-narration": "tsx scripts/make-narration.ts",
-    "tiger-check": "tsx scripts/tiger-check.ts"
+    "tiger-check": "tsx scripts/tiger-check.ts",
+    "mongo-check": "tsx scripts/mongo-check.ts"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",
     "@volatone/shared": "*",
+    "mongodb": "^7.9.0",
     "pg": "^8.23.1",
     "ws": "^8.18.0"
   },

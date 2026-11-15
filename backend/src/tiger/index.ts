@@ -8,6 +8,8 @@ import { TigerWriter } from "./writer";
 
 export interface Tiger {
   onEvent: (e: VolatoneEvent) => void;
+  /** The current run's id (shared with the MongoDB record), null before the first run. */
+  runId: () => string | null;
   /** Flush what is queued, then read the report back. Never throws; status says what happened. */
   report: () => Promise<ReportMessage>;
   stop: () => Promise<void>;
@@ -31,6 +33,7 @@ export function createTiger(
 
   return {
     onEvent: writer.onEvent,
+    runId: () => writer.runId,
     stop: () => writer.stop(),
     status: () => ({ queued: writer.queue.size, dropped: writer.queue.dropped, written: writer.written, breakerOpen: writer.breaker.isOpen, aggregate: writer.schema?.aggregate ?? null }),
     async report() {

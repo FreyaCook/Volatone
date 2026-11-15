@@ -27,7 +27,9 @@ export type ClientMessage =
   // "Reset storm": emits reset, restarts from t = 0. Keeps the current speed unless one is given.
   | { type: "reset"; speed?: Speed }
   // Ask for the after-action report of the current run. The server answers this client with one ReportMessage.
-  | { type: "get_report" };
+  | { type: "get_report" }
+  // Ask for the list of recent completed runs. The server answers this client with one RunsMessage.
+  | { type: "get_runs" };
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -62,6 +64,27 @@ export interface ReportMessage {
   agentViews?: number;
   moves?: ReportMove[];
   solana?: { count: number; minMs: number | null; meanMs: number | null; maxMs: number | null; failures: number };
+}
+
+// ---- Past runs (additive) ----
+// One document per completed run is kept in MongoDB Atlas. The server sends the last 10, newest first,
+// after each replay finishes and when a client sends "get_runs". Small fields only; never any secret.
+// Status "off": MongoDB is switched off. "unavailable": it is on but could not be read.
+
+export interface RunSummary {
+  runId: string;
+  finishedAt: string; // ISO date-time
+  speed: number;
+  goodCalls: number;  // player moves judged good ...
+  moves: number;      // ... out of all player moves
+  peakRisk: number;   // highest corridor peak, 0..1
+  confirmedBatches: number; // confirmed Solana devnet batches
+}
+
+export interface RunsMessage {
+  type: "runs";
+  status: ReportStatus;
+  runs?: RunSummary[];
 }
 
 /** The replay's decision points (fixed by backend/src/storm/storm.json; a backend test checks they match). */
