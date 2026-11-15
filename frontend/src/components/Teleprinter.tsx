@@ -8,7 +8,7 @@ export function Teleprinter({ state, mock }: { state: State; mock: boolean }) {
   useEffect(() => { if (list.current) list.current.scrollTop = 0; }, [state.txs.length]);
   return (
     <section className="tele" aria-label="Solana devnet log">
-      <h2>TELEPRINTER · SOLANA DEVNET LOG</h2>
+      <h2>TELEPRINTER · DEVNET LOG</h2>
       {state.txs.length === 0 ? (
         <p className="tele-line">Line open. Nothing logged yet.</p>
       ) : (
@@ -31,7 +31,7 @@ export function Teleprinter({ state, mock }: { state: State; mock: boolean }) {
           })}
         </ul>
       )}
-      <p className="note-dark">Each line is one batched devnet transaction of up to 8 logged events. Fake money.{mock ? " Mock mode: nothing here is real." : ""}</p>
+      <p className="note-dark">One line = one batched devnet transaction (up to 8 logged events). Fake money.{mock ? " Mock: not real." : ""}</p>
     </section>
   );
 }

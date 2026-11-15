@@ -114,6 +114,8 @@ describe("derived values", () => {
     expect(s.indexSeries[0]).toBeCloseTo(0.4);
     expect(s.indexSeries[1]).toBeCloseTo(0.5);
     expect(stormIndex(s)).toBeCloseTo(0.5);
+    expect(s.corridorSeries["USD-JPY"][1]).toBe(0.8);
+    expect(s.corridorSeries["EUR-JPY"][0]).toBe(0.4);
   });
 
   it("feed mixes decisions, moves and outcomes, newest first", () => {

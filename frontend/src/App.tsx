@@ -6,6 +6,7 @@ import { announce } from "./announce";
 import { clipsForChange, freshFlags, introFor, type ClipId } from "./narration";
 import { Narrator } from "./narrator";
 import { Sound, tensionFor } from "./sound";
+import { freshMusicSeen, maxStress, musicEvents } from "./music";
 import { autopilotAction, openPrompt, stormCount } from "./state";
 import { MOCK, useFeed } from "./useFeed";
 import { useStateChanges } from "./useStateChanges";
@@ -41,6 +42,7 @@ export default function App() {
 
   const introPlayed = useRef(false);
   const flags = useRef(freshFlags());
+  const musicSeen = useRef(freshMusicSeen());
   const [caption, setCaption] = useState<{ id: ClipId; text: string } | null>(null);
 
   const start = useCallback(() => {
@@ -49,7 +51,7 @@ export default function App() {
     introPlayed.current = true;
     send({ type: "start", ...speedField });
   }, [send, speed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const reset = () => { setAutoPrompts({}); send({ type: "reset", ...speedField }); };
+  const reset = () => { setAutoPrompts({}); musicSeen.current = freshMusicSeen(); sound.resetMusic(); send({ type: "reset", ...speedField }); };
   const move = useCallback((action: Action) => {
     const p = openPrompt(stateRef.current);
     if (p) send({ type: "player_move", corridor: p.corridor, action });
@@ -60,12 +62,13 @@ export default function App() {
     const go = () => sound.start();
     window.addEventListener("pointerdown", go, { once: true });
     window.addEventListener("keydown", go, { once: true });
-    return () => { window.removeEventListener("pointerdown", go); window.removeEventListener("keydown", go); };
+    return () => { window.removeEventListener("pointerdown", go); window.removeEventListener("keydown", go); sound.dispose(); };
   }, []);
-  useEffect(() => sound.setTension(tensionFor(stormCount(state))), [state]);
+  useEffect(() => { sound.setTension(tensionFor(stormCount(state))); sound.setStress(maxStress(state)); }, [state]);
   useEffect(() => { sound.setMuted(muted); narrator.setMuted(muted); }, [muted]);
   useEffect(() => {
     narrator.onCaption = (c) => {
+      sound.setDucked(c !== null); // voice on: music and drone duck
       setCaption(c);
       if (c && SPOKEN_ONLY.includes(c.id)) setLive((l) => [...l, c.text].slice(-4));
     };
@@ -79,6 +82,11 @@ export default function App() {
     if (next.decisions.length > prev.decisions.length) sound.cue("decision");
     if (openPrompt(next)?.id !== openPrompt(prev)?.id && openPrompt(next)) sound.cue("prompt");
     for (const [id, o] of Object.entries(next.outcomes)) if (!prev.outcomes[id]) sound.cue(o.result);
+    const me = musicEvents(prev, next, musicSeen.current);
+    musicSeen.current = me.seen;
+    if (me.newRun) sound.resetMusic();
+    if (me.stormHit) sound.stormHit();
+    if (me.ended) sound.endMusic();
     const n = clipsForChange(prev, next, flags.current, speed);
     flags.current = n.flags;
     n.clips.forEach((c) => narrator.play(c));

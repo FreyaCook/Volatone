@@ -19,6 +19,7 @@ export interface State {
   corridors: Record<Corridor, CorridorView>;
   decisions: AgentDecisionEvent[]; // newest first
   feed: FeedItem[]; // decisions, player moves and outcomes together, newest first
+  corridorSeries: Record<Corridor, number[]>; // risk (0..1) by replay second, per corridor
   indexSeries: number[]; // storm index (0..1, mean risk of the four corridors) by replay second, for the barograph
   sentinel: Partial<Record<Corridor, AgentDecisionEvent>>; // latest Sentinel decision per corridor
   moves: PlayerMoveEvent[];
@@ -34,7 +35,7 @@ export type Action =
 export function initialState(): State {
   const corridors = {} as Record<Corridor, CorridorView>;
   for (const c of CORRIDORS) corridors[c] = { state: "calm", risk: 0 };
-  return { status: "idle", t: 0, corridors, decisions: [], feed: [], indexSeries: [], sentinel: {}, moves: [], outcomes: {}, txs: [], loggedIds: {} };
+  return { status: "idle", t: 0, corridors, decisions: [], feed: [], corridorSeries: { "USD-JPY": [], "EUR-JPY": [], "EUR-USD": [], "GBP-USD": [] }, indexSeries: [], sentinel: {}, moves: [], outcomes: {}, txs: [], loggedIds: {} };
 }
 
 export function reduce(s: State, a: Action): State {
@@ -47,13 +48,17 @@ export function reduce(s: State, a: Action): State {
     case "tick": {
       const corridors = { ...s.corridors, [e.corridor]: { state: e.state, risk: e.risk } };
       const indexSeries = s.indexSeries.slice();
-      indexSeries[Math.round(e.t / 1000)] = stormIndexOf(corridors); // the last tick of a second wins
+      const sec = Math.round(e.t / 1000);
+      indexSeries[sec] = stormIndexOf(corridors); // the last tick of a second wins
+      const own = s.corridorSeries[e.corridor].slice();
+      own[sec] = e.risk;
       return {
         ...s,
         t: e.t,
         status: e.t >= REPLAY_LAST_SECOND * 1000 ? "finished" : "running",
         corridors,
         indexSeries,
+        corridorSeries: { ...s.corridorSeries, [e.corridor]: own },
       };
     }
     case "escalation":

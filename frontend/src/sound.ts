@@ -1,6 +1,10 @@
 // Music and cues, generated in the browser with the Web Audio API. No audio files.
 // A soft drone whose tension (detune, brightness, a third voice) rises with the number of corridors in storm.
+// Layers: the drone (below), the generative music in music.ts, and short cues. The drone and the music
+// both pass through one "duck" gain so narration can lower them together; the master gain is the mute.
 // Sound is never the only cue: every cue has an on-screen and aria-live equivalent.
+
+import { duckEnvelope, Music } from "./music";
 
 /** 0..1 tension from the number of corridors in storm (0..4). */
 export const tensionFor = (stormCorridors: number) => Math.min(1, Math.max(0, stormCorridors / 4));
@@ -10,6 +14,8 @@ type Cue = "decision" | "prompt" | "good" | "poor";
 export class Sound {
   private ctx?: AudioContext;
   private master?: GainNode;
+  private duck?: GainNode;
+  private music?: Music;
   private filter?: BiquadFilterNode;
   private voices: { osc: OscillatorNode; gain: GainNode }[] = [];
   muted = false;
@@ -23,12 +29,18 @@ export class Sound {
     }
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
-    const ctx = (this.ctx = new Ctx());
+    let ctx: AudioContext;
+    try { ctx = new Ctx(); } catch { return; } // no usable audio: stay silent
+    this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.5;
+    this.master.connect(ctx.destination);
+    this.duck = ctx.createGain();
+    this.duck.connect(this.master);
     this.filter = ctx.createBiquadFilter();
     this.filter.type = "lowpass";
-    this.filter.connect(this.master).connect(ctx.destination);
+    this.filter.connect(this.duck);
+    this.music = new Music(ctx, this.duck);
     // Root, fifth, and a slightly detuned root (slow beating). Pitches stay low and soft.
     for (const [freq, level] of [[110, 0.5], [165, 0.25], [110.5, 0.35]] as const) {
       const osc = ctx.createOscillator();
@@ -41,6 +53,31 @@ export class Sound {
       this.voices.push({ osc, gain });
     }
     this.setTension(this.tension);
+  }
+
+  /** Music follows the highest corridor risk (0..1). */
+  setStress(x: number) { this.music?.setStress(x); }
+  stormHit() { this.music?.stormHit(); }
+  endMusic() { this.music?.end(); }
+  resetMusic() { this.music?.reset(); }
+
+  /** Narration playing: music and drone go down to 35% in 150 ms, and come back over 600 ms. */
+  setDucked(ducked: boolean) {
+    if (!this.ctx || !this.duck) return;
+    const { target, seconds } = duckEnvelope(ducked);
+    this.duck.gain.setTargetAtTime(target, this.ctx.currentTime, seconds / 3);
+  }
+
+  /** Stop everything and release the audio context (unmount). A later start() builds it again. */
+  dispose() {
+    try {
+      this.music?.dispose();
+      this.voices.forEach((v) => { try { v.osc.stop(); } catch { /* already stopped */ } });
+      void this.ctx?.close();
+    } catch { /* ignore */ }
+    this.ctx = this.master = this.duck = this.filter = undefined;
+    this.music = undefined;
+    this.voices = [];
   }
 
   setMuted(m: boolean) {

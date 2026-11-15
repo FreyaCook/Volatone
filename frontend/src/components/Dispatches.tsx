@@ -10,7 +10,7 @@ function Slip({ item, i, auto }: { item: FeedItem; i: number; auto: boolean }) {
   let who: string, head: string, quote: string, stamp: string, ink: string;
   if (item.type === "agent_decision") {
     who = item.agent.toUpperCase();
-    head = `${tplus(item.t)} · ${item.corridor} · RISK ${pct(item.risk)}%`;
+    head = `${Math.floor(item.t / 1000)}s · ${item.corridor} · RISK ${pct(item.risk)}%`;
     quote = item.explanation; // cached text exactly as the server sent it
     stamp = item.action.toUpperCase();
     ink = INK[item.action];
@@ -30,8 +30,7 @@ function Slip({ item, i, auto }: { item: FeedItem; i: number; auto: boolean }) {
   return (
     <li className={`slip slip-${item.type}`} style={{ transform: ROT[i % 3] }}>
       <div className="slip-head"><span className="slip-who">{who}</span><span>{head}</span></div>
-      <p className="slip-quote">{quote}</p>
-      <div className="stamp" style={{ borderColor: ink, color: ink }}>{stamp}</div>
+      <p className="slip-quote"><span className="stamp" style={{ borderColor: ink, color: ink }}>{stamp}</span>{quote}</p>
     </li>
   );
 }
