@@ -173,17 +173,18 @@ ul { list-style: none; }
 /* After-action report: paper slips under the desk */
 .after { margin-top: 26px; }
 .after-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: stretch; }
-.after-left { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.after-left .after-devnet { flex: 1 1 auto; } /* the last left card fills the column: no empty gap under it */
+.after-peak, .after-moves, .after-devnet { min-width: 0; }
 .after-moves { min-width: 0; }
 .head-right { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 18px; text-align: right; }
 .head-right .after-status { margin: 0; }
 @media (min-width: 1000px) {
+  /* Peak risk and your moves side by side (equal height); the Solana card runs full width below them. */
   .after-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .after-grid > .after-devnet { grid-column: 1 / -1; }
   .after-grid.after-single { grid-template-columns: minmax(0, 1fr); max-width: 520px; }
 }
 .after-card { padding: 12px 16px 14px; }
-.after-card h3 { font: 700 18px var(--cond); letter-spacing: .14em; border-bottom: 1px dashed var(--ink); padding-bottom: 4px; margin-bottom: 8px; }
+.after-card h3 { font: 700 18px var(--cond); letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px dashed var(--ink); padding-bottom: 4px; margin-bottom: 8px; }
 .after-card ul { display: flex; flex-direction: column; gap: 8px; }
 .after-card li { display: grid; grid-template-columns: 80px 1fr auto; gap: 8px; align-items: center; }
 .after-card li small { grid-column: 2 / 4; }

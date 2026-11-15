@@ -79,23 +79,20 @@ export function AfterAction({ report, mock }: { report: ReportMessage | null; mo
 
       {data ? (
         <div className="after-grid">
-          <div className="after-left">
-            <div className="slip after-card">
-              <h3>PEAK RISK</h3>
-              <p className="card-sub">How risky each currency pair got during the storm.</p>
-              <ul>
-                {data.corridors?.map((c) => (
-                  <li key={c.corridor}>
-                    <span>{c.corridor}</span>
-                    <span className="bar" aria-hidden="true"><i style={{ width: `${pct(c.peakRisk)}%` }} /></span>
-                    <b>{pct(c.peakRisk)}%</b>
-                    <small>mean {pct(c.meanRisk)}%</small>
-                  </li>
-                ))}
-              </ul>
-              <p className="after-note">Agent views logged: {data.agentViews}.</p>
-            </div>
-            <DevnetCard sol={data.solana} mock={mock} tokens={tokens} goodCalls={goodCalls} />
+          <div className="slip after-card after-peak">
+            <h3>PEAK RISK</h3>
+            <p className="card-sub">How risky each currency pair got during the storm.</p>
+            <ul>
+              {data.corridors?.map((c) => (
+                <li key={c.corridor}>
+                  <span>{c.corridor}</span>
+                  <span className="bar" aria-hidden="true"><i style={{ width: `${pct(c.peakRisk)}%` }} /></span>
+                  <b>{pct(c.peakRisk)}%</b>
+                  <small>mean {pct(c.meanRisk)}%</small>
+                </li>
+              ))}
+            </ul>
+            <p className="after-note">Agent views logged: {data.agentViews}.</p>
           </div>
 
           <div className="slip after-card after-moves">
@@ -117,6 +114,8 @@ export function AfterAction({ report, mock }: { report: ReportMessage | null; mo
               <p>No moves were made: every prompt was missed, so nothing was logged.</p>
             )}
           </div>
+
+          <DevnetCard sol={data.solana} mock={mock} tokens={tokens} goodCalls={goodCalls} />
         </div>
       ) : (
         tokens && <div className="after-grid after-single"><DevnetCard mock={mock} tokens={tokens} goodCalls={goodCalls} /></div>
