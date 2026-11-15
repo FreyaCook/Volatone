@@ -259,6 +259,74 @@ test("WebSocket: a client that connects mid-run gets the catch-up, then live eve
   await new Promise((r) => wss.close(r));
 });
 
+/** A WebSocket server on a random port, and a helper that connects and records what it receives. */
+async function serve(engine: ReturnType<typeof setup>["engine"]) {
+  const wss = new WebSocketServer({ port: 0 });
+  await new Promise<void>((r) => wss.on("listening", () => r()));
+  attachServer(wss, engine);
+  const url = `ws://localhost:${(wss.address() as { port: number }).port}`;
+  const connect = async () => {
+    const ws = new WebSocket(url);
+    const got: VolatoneEvent[] = [];
+    ws.on("message", (d) => got.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    await new Promise((r) => setTimeout(r, 80)); // let any catch-up arrive
+    return { ws, got };
+  };
+  const close = async () => { engine.stop(); await new Promise((r) => wss.close(r)); };
+  return { connect, close };
+}
+
+test("WebSocket: a new connection while the replay is finished gets no history", async () => {
+  const { engine, toSecond } = setup();
+  engine.start();
+  await toSecond(150);
+  assert.equal(engine.state, "finished");
+  assert.ok(engine.history().length > 0, "there is a finished run in memory");
+  const { connect, close } = await serve(engine);
+  const c = await connect();
+  assert.deepEqual(c.got, [], "nothing is sent: the client shows the start screen");
+  c.ws.close();
+  await close();
+});
+
+test("WebSocket: a new connection while the engine is idle gets no history", async () => {
+  const { engine } = setup();
+  assert.equal(engine.state, "idle");
+  const { connect, close } = await serve(engine);
+  const c = await connect();
+  assert.deepEqual(c.got, []);
+  c.ws.close();
+  await close();
+});
+
+test("WebSocket: a new connection while the replay is running still gets the whole catch-up", async () => {
+  const { engine, toSecond } = setup();
+  engine.start();
+  await toSecond(30);
+  assert.equal(engine.state, "running");
+  const { connect, close } = await serve(engine);
+  const c = await connect();
+  assert.ok(c.got.length > 0);
+  assert.deepEqual(c.got, [...engine.history()]);
+  c.ws.close();
+  await close();
+});
+
+test("WebSocket: a finished run can be started again by a client that received no history", async () => {
+  const { engine, toSecond } = setup();
+  engine.start();
+  await toSecond(150);
+  const { connect, close } = await serve(engine);
+  const c = await connect();
+  c.ws.send(JSON.stringify({ type: "start" }));
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(engine.state, "running");
+  assert.equal(c.got[0]?.type, "reset", "the client sees the new run from its reset event");
+  c.ws.close();
+  await close();
+});
+
 test("parseClientMessage accepts only the three message shapes", () => {
   assert.deepEqual(parseClientMessage('{"type":"start"}'), { type: "start" });
   assert.deepEqual(parseClientMessage('{"type":"reset","extra":1}'), { type: "reset" });

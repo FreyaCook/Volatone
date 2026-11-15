@@ -18,12 +18,16 @@ export function useFeed() {
   const [serverRuns, setServerRuns] = useState<RunsMessage | null>(null);
   const [serverReport, setServerReport] = useState<ReportMessage | null>(null);
   const transport = useRef<Transport>();
+  const finishedRef = useRef(false); // is this client showing a finished run right now?
 
   useEffect(() => {
     const handlers = {
       onEvent: (event: VolatoneEvent) =>
         dispatch({ kind: "event", event }),
-      onReport: (r: ReportMessage) => setServerReport(r),
+      // A report is only for a client that is showing the finished run. Anything that arrives while idle
+      // or running (for example one broadcast right after a visitor connects) belongs to a run this
+      // client never saw, so it is dropped rather than kept for later.
+      onReport: (r: ReportMessage) => { if (finishedRef.current) setServerReport(r); },
       onRuns: (r: RunsMessage) => setServerRuns(r),
       onStatus: (s: ConnStatus) => {
         setConn(s);
@@ -42,6 +46,7 @@ export function useFeed() {
   // After-action report. A new run clears it. The server pushes one a few seconds after the replay
   // finishes; if none has arrived 2 s after we see the end (for example a late join), ask for it.
   const finished = state.status === "finished";
+  finishedRef.current = finished;
   useEffect(() => {
     if (!finished) setServerReport(null);
   }, [finished]);

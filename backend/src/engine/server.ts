@@ -1,5 +1,6 @@
 // WebSocket feed for the replay engine.
-//  - Server -> client: each VolatoneEvent as JSON. On connect, every event since the current run began.
+//  - Server -> client: each VolatoneEvent as JSON. On connect during a running replay, every event since the
+//    current run began; on an idle or finished engine, nothing (the client shows the start screen).
 //  - Client -> server: ClientMessage JSON (shared/protocol.ts). Anything invalid is ignored (logged here).
 
 import { WebSocketServer, type WebSocket } from "ws";
@@ -57,7 +58,9 @@ export function attachServer(
   });
 
   wss.on("connection", (ws) => {
-    for (const e of engine.history()) send(ws, JSON.stringify(e)); // late joiner catch-up
+    // Late joiner catch-up, only while a replay is running. A new visitor on an idle or finished engine
+    // gets nothing and sees the start screen; the Start button restarts a finished run.
+    if (engine.state === "running") for (const e of engine.history()) send(ws, JSON.stringify(e));
     ws.on("message", (data) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return log(`ignored invalid client message: ${data.toString().slice(0, 100)}`);
