@@ -12,15 +12,18 @@
     "send-test-batch": "tsx scripts/send-test-batch.ts",
     "watch": "tsx scripts/watch.ts",
     "make-explanations": "tsx scripts/make-explanations.ts",
-    "make-narration": "tsx scripts/make-narration.ts"
+    "make-narration": "tsx scripts/make-narration.ts",
+    "tiger-check": "tsx scripts/tiger-check.ts"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",
     "@volatone/shared": "*",
+    "pg": "^8.23.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.5.12",
     "tsx": "^4.19.0"
   }

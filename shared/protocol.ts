@@ -14,7 +14,7 @@
 // DECISION_POINTS[i] opens with the first tick at t = second * 1000 and accepts one player_move
 // until the tick at t = (second + PROMPT_SECONDS) * 1000. No player_move in that window = "missed".
 
-import type { Action, Corridor, ResetEvent } from "./events";
+import type { Action, AgentName, Corridor, Outcome, ResetEvent } from "./events";
 
 /** Run speed: 1 = Normal, 2 = Fast, 3 = Rush. Replay seconds per real second. */
 export type Speed = NonNullable<ResetEvent["speed"]>;
@@ -25,9 +25,44 @@ export type ClientMessage =
   | { type: "start"; speed?: Speed }
   | { type: "player_move"; corridor: Corridor; action: Action } // answers the open prompt
   // "Reset storm": emits reset, restarts from t = 0. Keeps the current speed unless one is given.
-  | { type: "reset"; speed?: Speed };
+  | { type: "reset"; speed?: Speed }
+  // Ask for the after-action report of the current run. The server answers this client with one ReportMessage.
+  | { type: "get_report" };
 
 export type ClientMessageType = ClientMessage["type"];
+
+// ---- After-action report (additive) ----
+// The one server -> client message that is not a VolatoneEvent. It is sent to every client a few
+// seconds after the replay finishes, and to one client when it sends "get_report". It is built only
+// from rows read back out of Tiger Data (TimescaleDB). Status "off": Tiger Data is switched off.
+// "unavailable": it is on but could not be read. Only "ok" carries data. It never carries secrets.
+
+export type ReportStatus = "ok" | "unavailable" | "off";
+
+export interface ReportMove {
+  corridor: Corridor;
+  action: Action;
+  replayT: number;
+  /** null while the 15 s look-ahead has not ended yet */
+  result: Outcome | null;
+  reason: string | null;
+  /** each agent's latest view of that corridor at the time of the move */
+  views: { agent: AgentName; action: Action; risk: number }[];
+}
+
+export interface ReportMessage {
+  type: "report";
+  status: ReportStatus;
+  runId?: string;
+  /** how long the report queries took, in ms */
+  queryMs?: number;
+  /** which kind of aggregate answered the peak-risk query */
+  aggregate?: "continuous" | "view";
+  corridors?: { corridor: Corridor; peakRisk: number; meanRisk: number }[];
+  agentViews?: number;
+  moves?: ReportMove[];
+  solana?: { count: number; minMs: number | null; meanMs: number | null; maxMs: number | null; failures: number };
+}
 
 /** The replay's decision points (fixed by backend/src/storm/storm.json; a backend test checks they match). */
 export const DECISION_POINTS: readonly { id: string; second: number; corridor: Corridor }[] = [
