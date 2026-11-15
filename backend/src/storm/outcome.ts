@@ -59,6 +59,6 @@ export function judge(storm: AnalysedStorm, dp: DecisionPoint, action: Action): 
     case "hedge":
       return { result: "poor", reason: "Protection costs most at the scariest moment, and risk then fell." };
     case "reduce":
-      return { result: "poor", reason: "Risk fell soon after, so you sold near the worst moment." };
+      return { result: "poor", reason: "Risk fell soon after, so you cut back near the worst moment." };
   }
 }
