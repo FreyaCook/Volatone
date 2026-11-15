@@ -11,7 +11,7 @@ export interface SchemaInfo {
 const RISK_10S_SELECT = `
   SELECT time_bucket('10 seconds', ts) AS bucket, run_id, corridor,
          max(risk) AS peak_risk, avg(risk) AS mean_risk, count(*) AS n
-  FROM risk_ticks GROUP BY 1, 2, 3`;
+  FROM risk_ticks GROUP BY time_bucket('10 seconds', ts), run_id, corridor`;
 
 const TABLES: [string, string][] = [
   ["runs", `CREATE TABLE IF NOT EXISTS runs (run_id uuid PRIMARY KEY, scenario text, seed int, speed int, started_at timestamptz)`],

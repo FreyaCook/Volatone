@@ -129,7 +129,8 @@ describe("RowMapper", () => {
 
 describe("report shaping", () => {
   const raw: RawReport = {
-    peaks: [{ corridor: "GBP-USD", peak: "0.5123", mean: 0.2 }, { corridor: "USD-JPY", peak: 0.91, mean: "0.4" } as never],
+    // pg returns numeric columns as strings sometimes: shaping must cope
+    peaks: [{ corridor: "GBP-USD", peak: "0.5123", mean: 0.2 }, { corridor: "USD-JPY", peak: 0.91, mean: "0.4" }] as never,
     agentViews: 43 as never,
     moves: [{ replay_t: 26000, corridor: "USD-JPY", action: "hedge", result: "good", reason: "r", views: [{ agent: "sentinel", action: "hedge", risk: 0.7 }] },
             { replay_t: 73000, corridor: "GBP-USD", action: "hold", result: null, reason: null, views: null }],

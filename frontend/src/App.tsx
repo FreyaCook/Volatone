@@ -15,6 +15,7 @@ import { Barograph } from "./chart/Barograph";
 import { Dispatches } from "./components/Dispatches";
 import { Teleprinter } from "./components/Teleprinter";
 import { Desk } from "./desk/Desk";
+import { AfterAction } from "./components/AfterAction";
 import { tplus } from "./format";
 
 // TODO: set to true (or delete this flag) after merging the engine branch: shared/protocol.ts will then
@@ -29,7 +30,7 @@ const narrator = new Narrator();
 const SPOKEN_ONLY: ClipId[] = ["intro", "start", "easing", "end"];
 
 export default function App() {
-  const { state, conn, send } = useFeed();
+  const { state, conn, send, report } = useFeed();
   const [speed, setSpeed] = useState<Speed>(1);
   const [muted, setMuted] = useState(false);
   const [live, setLive] = useState<string[]>([]);
@@ -170,6 +171,8 @@ export default function App() {
 
       <Desk state={state} prompt={prompt} speed={speed} speedEnabled={SPEED_ENABLED} autopilot={autopilot} conn={conn}
         onSpeed={setSpeed} onStart={start} onReset={reset} onMove={move} />
+
+      {state.status === "finished" && <AfterAction report={report} mock={MOCK} />}
 
       <footer className="foot">Simulation. Fake money. Solana devnet. Not financial advice.</footer>
       <div className="sr" aria-live="polite" aria-atomic="false">{live.map((m, i) => <p key={`${i}-${m}`}>{m}</p>)}</div>

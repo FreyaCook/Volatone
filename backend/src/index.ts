@@ -53,7 +53,7 @@ engine.subscribe((e) => {
       void getReport().then((r) => {
         const data = JSON.stringify(r);
         for (const ws of wss.clients) if (ws.readyState === WebSocket.OPEN) ws.send(data);
-        log(`report sent (${r.status}${r.queryMs !== undefined ? `, ${r.queryMs} ms` : ""})`);
+        log(`report sent (${r.status}${r.queryMs !== undefined ? `, ${r.queryMs} ms` : ""})${tiger ? ` tiger ${JSON.stringify(tiger.status())}` : ""}`);
       });
     }, REPORT_SETTLE_MS);
   }

@@ -1,14 +1,27 @@
 import type { VolatoneEvent } from "@volatone/shared";
+import type { ReportMessage } from "@volatone/shared/protocol";
 import type { ClientMessage } from "./clientMessage";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 export interface Handlers {
   onEvent: (e: VolatoneEvent) => void;
+  onReport?: (r: ReportMessage) => void; // the after-action report (not an event)
   onStatus: (s: ConnStatus) => void; // "open" means history is about to be replayed: clear state first
 }
 export interface Transport {
   send: (m: ClientMessage) => void;
   close: () => void;
+}
+
+/** A server message is either the after-action report or an event. Anything else is ignored. */
+export function parseServerMessage(raw: string): { report: ReportMessage } | { event: VolatoneEvent } | null {
+  try {
+    const m = JSON.parse(raw) as { type?: unknown };
+    if (typeof m !== "object" || m === null || typeof m.type !== "string") return null;
+    return m.type === "report" ? { report: m as ReportMessage } : { event: m as VolatoneEvent };
+  } catch {
+    return null;
+  }
 }
 
 /** WebSocket to the backend, with auto-reconnect (backoff up to 5 s). */
@@ -26,11 +39,10 @@ export function connectWs(url: string, h: Handlers): Transport {
       h.onStatus("open");
     };
     ws.onmessage = (m) => {
-      try {
-        h.onEvent(JSON.parse(String(m.data)) as VolatoneEvent);
-      } catch {
-        /* ignore a message that is not valid JSON */
-      }
+      const msg = parseServerMessage(String(m.data));
+      if (!msg) return; // not valid JSON: ignore
+      if ("report" in msg) h.onReport?.(msg.report);
+      else h.onEvent(msg.event);
     };
     ws.onclose = () => {
       if (stopped) return;
