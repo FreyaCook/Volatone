@@ -203,3 +203,15 @@ ul { list-style: none; }
 .past-empty { font: 14px/1.45 var(--type); }
 @media (max-width: 760px) { .past-list li { grid-template-columns: 1fr 1fr; } }
 
+
+/* After-action cards: subtitle, Solana steps, big records line, play-token badge */
+.card-sub { color: #5b5547; margin: -2px 0 8px; }
+.steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.steps li { display: block; border: 1px solid var(--ink); padding: 6px 8px; font: 14px/1.3 var(--type); }
+.step-n { display: block; font: 700 20px var(--cond); }
+.after-card .after-big { font: 700 28px/1.1 var(--cond); letter-spacing: .04em; margin: 8px 0; }
+.sim { font: 700 14px var(--cond); letter-spacing: .12em; border: 2px solid #b8290f; color: #b8290f; padding: 0 6px; margin-right: 6px; }
+.token-row { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; }
+.token-row p { margin: 0; }
+.token-badge { flex: none; font: 700 24px/1 var(--cond); letter-spacing: .08em; color: #13294b; border: 2px solid #13294b; border-radius: 4px; padding: 6px 10px; transform: rotate(-3deg); }
+@media (max-width: 700px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

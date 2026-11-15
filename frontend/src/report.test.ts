@@ -88,15 +88,73 @@ describe("past runs", () => {
   });
 });
 
-import { HONESTY_LINE, HONESTY_LINE_WITH_TOKENS, playTokensLine } from "./components/AfterAction";
-describe("play tokens wording", () => {
-  it("the token line says 'play tokens' and never calls them money, a coin, a swap or a reward", () => {
-    const line = playTokensLine({ minted: 300, symbol: "VPLAY", mint: "M", signature: "S", confirmMs: 1100 });
-    expect(line).toBe("300 play tokens (VPLAY) minted, confirmed in 1100 ms.");
-    for (const bad of [/money/i, /coin/i, /reward/i, /swap/i, /earn/i]) expect(line).not.toMatch(bad);
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { DevnetCard, HONESTY_LINE, recordsLine, STEPS, tokenLine } from "./components/AfterAction";
+
+const text = (html: string) =>
+  html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+const tokens = { minted: 300, symbol: "VPLAY" as const, mint: "M", signature: "SIG", confirmMs: 1210 };
+const card = (props: Parameters<typeof DevnetCard>[0]) => text(renderToStaticMarkup(createElement(DevnetCard, props)));
+
+describe("On Solana devnet card", () => {
+  it("says how many records were saved, honest when some failed", () => {
+    expect(recordsLine({ count: 12, failures: 0 })).toBe("12 of 12 records saved");
+    expect(recordsLine({ count: 10, failures: 2 })).toBe("10 of 12 records saved");
+    expect(recordsLine({ count: 0, failures: 3 })).toBe("0 of 3 records saved");
+    expect(recordsLine({ count: 0, failures: 0 })).toBe("No records saved");
+    expect(recordsLine(undefined)).toBeNull();
   });
-  it("keeps the honesty lines: devnet and fake money always, 'no value' when tokens are shown", () => {
-    expect(HONESTY_LINE).toBe("Fake money, devnet only.");
-    expect(HONESTY_LINE_WITH_TOKENS).toBe("Play tokens have no value. Fake money, devnet only.");
+
+  it("the play-token line is singular for one good call and plural otherwise, and says it has no value", () => {
+    expect(tokenLine(1)).toBe("Play tokens for your 1 good call. A public score marker on Solana's practice network, with no value.");
+    expect(tokenLine(3)).toBe("Play tokens for your 3 good calls. A public score marker on Solana's practice network, with no value.");
+    expect(tokenLine(0)).toContain("0 good calls");
+  });
+
+  it("shows the plain sentence, the four steps, the records line and the footer, in that order", () => {
+    const t = card({ sol: { count: 10, minMs: 800, meanMs: 1000, maxMs: 1400, failures: 2 }, mock: false, goodCalls: 0 });
+    const order = ["On Solana devnet", "Everything you did in this run", "1 You make a call", "2 It is bundled into a record", "3 Solana saves it", "4 Anyone can look it up", "10 of 12 records saved", HONESTY_LINE];
+    let at = -1;
+    for (const part of order) { const i = t.indexOf(part); expect(i, part).toBeGreaterThan(at); at = i; }
+    expect(STEPS).toHaveLength(4);
+  });
+
+  it("has no timing anywhere: no 'ms', no 'Confirm time', not even with play tokens", () => {
+    for (const t of [
+      card({ sol: { count: 12, minMs: 796, meanMs: 1066, maxMs: 1390, failures: 0 }, mock: false, goodCalls: 3, tokens }),
+      card({ sol: { count: 12, minMs: 796, meanMs: 1066, maxMs: 1390, failures: 0 }, mock: false, goodCalls: 0 }),
+      card({ mock: true, goodCalls: 0 }),
+    ]) {
+      expect(t).not.toMatch(/\d\s*ms\b/i);
+      expect(t).not.toMatch(/\bms\b/i);
+      expect(t).not.toMatch(/confirm/i);
+      expect(t).not.toMatch(/\b(796|1066|1390|1210)\b/);
+    }
+  });
+
+  it("with play tokens: a '300 VPLAY' badge, the line beside it, and the Explorer link; without: none of them", () => {
+    const withT = card({ sol: { count: 12, minMs: 1, meanMs: 1, maxMs: 1, failures: 0 }, mock: false, goodCalls: 3, tokens });
+    expect(withT).toContain("300 VPLAY");
+    expect(withT).toContain("Play tokens for your 3 good calls.");
+    expect(renderToStaticMarkup(createElement(DevnetCard, { mock: false, goodCalls: 3, tokens }))).toContain("explorer.solana.com/tx/SIG?cluster=devnet");
+    const without = card({ sol: { count: 12, minMs: 1, meanMs: 1, maxMs: 1, failures: 0 }, mock: false, goodCalls: 0 });
+    expect(without).not.toContain("VPLAY");
+    expect(without).toContain("12 of 12 records saved");
+  });
+
+  it("a lone card (Tiger Data down, tokens exist) still shows the steps and the badge, without a records line", () => {
+    const t = card({ mock: false, goodCalls: 2, tokens: { ...tokens, minted: 200 } });
+    expect(t).toContain("200 VPLAY");
+    expect(t).toContain("Play tokens for your 2 good calls.");
+    expect(t).toContain("3 Solana saves it");
+    expect(t).not.toMatch(/records saved/);
+  });
+
+  it("mock mode is labelled SIMULATED, and the wording avoids 'swap', 'reward' and finality claims", () => {
+    const t = card({ sol: { count: 4, minMs: null, meanMs: null, maxMs: null, failures: 0 }, mock: true, goodCalls: 1, tokens });
+    expect(t).toContain("SIMULATED");
+    for (const bad of [/swap/i, /reward/i, /finality/i, /\bcoin\b/i, /\bearn/i]) expect(t).not.toMatch(bad);
+    expect(HONESTY_LINE).toBe("Fake money. Devnet is Solana's practice network.");
   });
 });
