@@ -87,3 +87,12 @@ describe("past runs", () => {
     expect(MOCK_RUNS.runs?.every((r) => r.runId.startsWith("mock-") && r.finishedAt.startsWith("2026-01-01"))).toBe(true);
   });
 });
+
+import { playTokensLine } from "./components/AfterAction";
+describe("play tokens line", () => {
+  it("says 'play tokens', says they have no value, and never calls them money", () => {
+    const line = playTokensLine({ minted: 300, symbol: "VPLAY", mint: "M", signature: "S", confirmMs: 1100 });
+    expect(line).toBe("300 play tokens (VPLAY) minted on Solana devnet, 100 for each good call, confirmed in 1100 ms. Play tokens have no value.");
+    for (const bad of [/money/i, /coin/i, /reward/i, /swap/i, /earn/i]) expect(line).not.toMatch(bad);
+  });
+});

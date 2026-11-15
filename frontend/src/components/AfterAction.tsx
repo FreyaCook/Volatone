@@ -1,4 +1,4 @@
-import type { ReportMessage } from "@volatone/shared/protocol";
+import type { PlayTokens, ReportMessage } from "@volatone/shared/protocol";
 import { pct } from "../format";
 
 const AGENT: Record<string, string> = { sentinel: "Sentinel", opportunist: "Opportunist", strategist: "Strategist" };
@@ -10,6 +10,11 @@ export function statusLine(report: ReportMessage | null, mock: boolean): string 
   if (report.status === "unavailable") return "Tiger Data unavailable. Replay and Solana log are unaffected.";
   if (report.status === "off") return "Tiger Data switched off.";
   return `Read back from Tiger Data in ${report.queryMs ?? "?"} ms.`;
+}
+
+/** Plain wording for the play tokens: they are a devnet demo and have no value. */
+export function playTokensLine(t: PlayTokens): string {
+  return `${t.minted} play tokens (${t.symbol}) minted on Solana devnet, 100 for each good call, confirmed in ${t.confirmMs} ms. Play tokens have no value.`;
 }
 
 export function AfterAction({ report, mock }: { report: ReportMessage | null; mock: boolean }) {
@@ -69,6 +74,18 @@ export function AfterAction({ report, mock }: { report: ReportMessage | null; mo
             )}
             <p className="after-note">Fake money, devnet only.</p>
           </div>
+        </div>
+      )}
+
+      {report?.playTokens && (
+        <div className="slip after-tokens">
+          <h3>PLAY TOKENS</h3>
+          <p>{playTokensLine(report.playTokens)}</p>
+          <p>
+            <a href={`https://explorer.solana.com/tx/${report.playTokens.signature}?cluster=devnet`} target="_blank" rel="noreferrer">
+              Transaction on Solana Explorer<span className="sr"> (opens in a new tab)</span>
+            </a>
+          </p>
         </div>
       )}
 

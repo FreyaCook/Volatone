@@ -193,3 +193,7 @@ ul { list-style: none; }
 .past-list li:last-child { border-bottom: 0; padding-bottom: 0; }
 .past-empty { font: 14px/1.45 var(--type); }
 @media (max-width: 760px) { .past-list li { grid-template-columns: 1fr 1fr; } }
+
+.after-tokens { margin-top: 18px; padding: 12px 16px 14px; max-width: 640px; }
+.after-tokens h3 { font: 700 18px var(--cond); letter-spacing: .14em; border-bottom: 1px dashed var(--ink); padding-bottom: 4px; margin-bottom: 8px; }
+.after-tokens p { font: 14px/1.4 var(--type); margin-top: 6px; }
