@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "send-test-batch": "tsx scripts/send-test-batch.ts",
     "watch": "tsx scripts/watch.ts",
-    "make-explanations": "tsx scripts/make-explanations.ts"
+    "make-explanations": "tsx scripts/make-explanations.ts",
+    "make-narration": "tsx scripts/make-narration.ts"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",
